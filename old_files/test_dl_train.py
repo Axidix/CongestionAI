@@ -563,6 +563,3 @@ if __name__ == "__main__":
 
     print("DL Model Evaluation on Test Set")
     evaluate_and_plot_block(eval_df, horizon=24, years=[2022])
-
-
-
