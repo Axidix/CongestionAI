@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
-from typing import Optional
+from typing import Optional, Dict, Tuple
 
 
 def _compute_deltas(values: torch.Tensor, 
@@ -177,3 +177,99 @@ def create_loss(config: LossConfig) -> nn.Module:
     
     else:
         raise ValueError(f"Unknown loss type: {config.loss_type}")
+
+# ----------------------------------------------------------------------
+# Multi-Head Loss Wrapper
+# ----------------------------------------------------------------------
+
+class MultiHeadLoss(nn.Module):
+    """
+    Wraps any existing loss function to work with multi-head models.
+    
+    Applies the base loss to each head separately, with optional per-head weighting.
+    """
+    
+    def __init__(
+        self,
+        head_config: Dict[str, dict],
+        base_loss: nn.Module,
+        head_weights: Optional[Dict[str, float]] = None,
+    ):
+        """
+        Args:
+            head_config: From model.get_head_config(), contains start_idx/end_idx
+            base_loss: Any loss module (MSELoss, SpikeWeightedMSELoss, etc.)
+            head_weights: Optional weight per head, e.g., {"immediate": 1.5, "short": 1.0}
+        """
+        super().__init__()
+        
+        self.head_config = head_config
+        self.head_names = list(head_config.keys())
+        self.base_loss = base_loss
+        self.head_weights = head_weights or {n: 1.0 for n in self.head_names}
+        
+        # Check if base_loss accepts prev_values
+        import inspect
+        sig = inspect.signature(base_loss.forward)
+        self.loss_accepts_prev = "prev_values" in sig.parameters
+    
+    def forward(
+        self,
+        pred: torch.Tensor,
+        target: torch.Tensor,
+        prev_values: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        """
+        Args:
+            pred: (B, horizon) predictions
+            target: (B, horizon) targets
+            prev_values: (B,) values at t=0 (passed to base_loss if it accepts it)
+        
+        Returns:
+            total_loss: Weighted sum of head losses
+            head_losses: Dict of per-head losses for logging
+        """
+        total_loss = 0.0
+        head_losses = {}
+        
+        for name in self.head_names:
+            cfg = self.head_config[name]
+            start, end = cfg["start_idx"], cfg["end_idx"]
+            
+            pred_h = pred[:, start:end]
+            target_h = target[:, start:end]
+            
+            # Call base loss with or without prev_values
+            if self.loss_accepts_prev and prev_values is not None:
+                head_loss = self.base_loss(pred_h, target_h, prev_values)
+            else:
+                head_loss = self.base_loss(pred_h, target_h)
+            
+            head_losses[name] = head_loss
+            total_loss = total_loss + self.head_weights.get(name, 1.0) * head_loss
+        
+        return total_loss, head_losses
+
+
+def create_multihead_loss(
+    head_config: Dict[str, dict],
+    loss_config: LossConfig,
+    head_weights: Optional[Dict[str, float]] = None,
+) -> MultiHeadLoss:
+    """
+    Factory to create MultiHeadLoss from existing loss config.
+    
+    Args:
+        head_config: From model.get_head_config()
+        loss_config: LossConfig for the base loss
+        head_weights: Optional per-head weights
+    
+    Returns:
+        MultiHeadLoss wrapping the configured base loss
+    """
+    base_loss = create_loss(loss_config)
+    return MultiHeadLoss(
+        head_config=head_config,
+        base_loss=base_loss,
+        head_weights=head_weights,
+    )

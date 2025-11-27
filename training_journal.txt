@@ -59,3 +59,11 @@ NEW STEPS
 The general shapes are okay, but forecast on spikes is bad. Let's try to work on that. Two axes:
 - crafted features for spikes/deltas/rolling averages
 - personalized losses weighting spikes/great deltas more
+
+The current models are playing it safe. They have learned that predicting "no spike" is usually right (since spikes are ~35% of data), so it:
+    - Predicts spikes conservatively → high precision, terrible recall
+    - Essentially smooths toward the mean → low delta correlation
+    - Misses most actual congestion events → the exact thing you want to predict
+(insights from new spike metrics)
+
+We will now proceed to a new grid search on adding crafted spikes features + personalized losses
