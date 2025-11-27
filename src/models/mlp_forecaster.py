@@ -2,7 +2,8 @@ import torch.nn as nn
 import torch
 
 class MLPForecaster(nn.Module):
-    def __init__(self, input_length, num_features, horizon, num_detectors, emb_dim=16):
+    def __init__(self, input_length, num_features, horizon, num_detectors, emb_dim=16,
+                 dropout=0.1, max_dim=512):
         super().__init__()
 
         self.emb = nn.Embedding(num_detectors, emb_dim)
@@ -11,22 +12,17 @@ class MLPForecaster(nn.Module):
         self.input_dim = input_length * (num_features + emb_dim)
 
         self.net = nn.Sequential(
-            nn.Linear(self.input_dim, 1024),
-            nn.BatchNorm1d(1024),
+            nn.Linear(self.input_dim, 512),
+            nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(dropout),
 
-            nn.Linear(1024, 2048),
-            nn.BatchNorm1d(2048),
+            nn.Linear(512, max_dim),
+            nn.BatchNorm1d(max_dim),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(dropout),
 
-            nn.Linear(2048, 1024),
-            nn.BatchNorm1d(1024),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-
-            nn.Linear(1024, 256),
+            nn.Linear(max_dim, 256),
             nn.BatchNorm1d(256),
             nn.ReLU(),
 

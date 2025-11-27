@@ -1,0 +1,61 @@
+First 3 experiments (MLP forecaster, with shceduler or not, MSE or SmoothL1Loss):
+- overfitting since epoch 1; train loss always decreasing but val increasing
+- stagnates around 0.45 correlation - 0.5 rmse
+- model probably too big (too many params for an MLP)
+- MLP --> no learning sequences / temporal info
+- not enough regularization ?
+
+
+Experiment : 4 models (transformer, MLP, TCN, Nhits), simpler MLP with more dropout, default params
+--> Same issue, let's try to see if it actually overfits on train, using smaller horizon
+
+1h horizon, 1 detector: no problem, even if preds are not perfect
+1h horizon, 200 detectors: huge val loss for TCN and MLP (increasing), stagnating but low for Nhits and transformer
+==> I still don't understand the problem
+
+Let's keep it simple: we will use onky N-hits, with fewer (one or a few) years, less features, until we find the root cause
+
+With a high embeddding dimensiont (256vs32), the detector problem seems solved: even with 200, no issue spotted.
+Still the problem of forecast horizon: bad val loss even with 4.
+
+More complex models + lower learning rate + Adam optim, training on 20 detectors and 1,4,8,14,24h horizon:
+- loss plateau-ing after several epochs, but at low value + approx. follow train curve at the beginning
+--> seems like no inherent pipeline issue now, just a model not good enough
+--> We can go forward:
+    - Scale data? add back years, features, expand history/lags...
+    - Use more suitable model? (e.g multi head regression? transformer?)
+    - Use a 1-step model ?
+
+Let's keep an 8 hour forecast for now and scale data:
+    - add back features
+    - add more years to train / select correctly train/val/test
+    - add more history/lags when suitable
+    - add more detectors
+    - if still correct, go on model tuning
+For better analysis, add per-step metrics.
+
+VERY VERY IMPORTANT:
+loss at 20 detectors is way lower than at 1: more data? issue in the model? useless emb?
+
+Test features relevance:
+- no obvious differences between any setup
+- train loss a bit lower with full features (with hand-crafted or not)
+- AI analysis: "The differences are relatively small (~8% between best and worst), suggesting the model relies heavily on temporal patterns in congestion_index itself. Weather and context features provide incremental improvements."
+
+Test features relevance:
+- no obvious differences except 1 week dense history: loss ten times higher, but curves have similar shape
+- 4 days dense seems a good in between: low train/val loss, quite a lot of history for future experiments
+- even half a day seems enough, which is really weird: maybe data is so repetitive that it learns what is going on the past day at the same hour*
+- best metrics for 1 day hourly history
+
+REMINDER: these metrics are computed on train dataset.
+We will now switch back to test dataset to actually evaluate the best generalizator
+We also use val year=2019 to not have an "extreme" year as the validation data
+
+Grid search on history x weather_lags x model_depth:
+Across all configurations, the grid-search results show a consistent pattern: short-term, high-resolution history (24h hourly) and sparse weather lags provide the strongest predictive signal with the lowest and most stable validation losses, while longer histories or dense lag structures offer no benefit and tend to increase overfitting. Model depth and width have only a marginal impact, indicating that capacity is not currently the limiting factor; instead, performance is driven primarily by feature design and temporal context. Sparse lag features and compact models also provide the best trade-off between accuracy and efficiency, confirming that the problem benefits from concise, recent inputs rather than broader historical or high-dimensional weather information.
+
+NEW STEPS
+The general shapes are okay, but forecast on spikes is bad. Let's try to work on that. Two axes:
+- crafted features for spikes/deltas/rolling averages
+- personalized losses weighting spikes/great deltas more

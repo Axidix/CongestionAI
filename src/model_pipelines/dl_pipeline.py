@@ -1,7 +1,9 @@
 import torch
 from torch.cuda.amp import autocast
 from tqdm import tqdm
-
+from torch.utils.data import DataLoader
+from src.utils.sequences import NHitsDataset
+import numpy as np
 
 def train_model(
     model,
@@ -14,7 +16,7 @@ def train_model(
     device="cuda",
     num_epochs=50,
     grad_clip=1.0,   
-    early_stopping=None     
+    patience=None     
 ):
 
     train_losses = []
@@ -120,15 +122,14 @@ def train_model(
         # -------------------------
         # Early Stopping
         # -------------------------
-        if early_stopping is not None:
-            if epoch_val_loss < best_val_loss:
+        if patience is not None:
+            if epoch_val_loss > best_val_loss:
                 best_val_loss = epoch_val_loss
                 best_state = model.state_dict()
                 no_improve = 0
             else:
                 no_improve += 1
-                patience = early_stopping.get("patience", 5)
-
+                print(f"No improvement for {no_improve} epochs.")
                 if no_improve >= patience:
                     tqdm.write("Early stopping triggered.")
                     model.load_state_dict(best_state)
@@ -160,3 +161,29 @@ def evaluate(model, loader, criterion, device="cuda"):
 
     preds_list = torch.cat(preds_list, dim=0)
     return preds_list, total_loss / len(loader)
+
+
+def predict(model, X_hist, det_ids, device="cuda", batch_size=256):
+    """
+    Run inference on arbitrary (X_hist, det_ids) pairs.
+    Returns an array of predictions (N, horizon).
+    """
+
+    model.eval()
+    preds_list = []
+
+    loader = DataLoader(
+        NHitsDataset(X_hist, np.zeros((len(X_hist), 1), dtype=np.float32), det_ids),
+        batch_size=batch_size,
+        shuffle=False,
+        pin_memory=True
+    )
+
+    with torch.no_grad():
+        for X_batch, _, det_id_batch in loader:
+            X_batch = X_batch.to(device)
+            det_id_batch = det_id_batch.to(device)
+            preds = model(X_batch, det_id_batch)
+            preds_list.append(preds.cpu())
+
+    return torch.cat(preds_list, dim=0)

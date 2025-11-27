@@ -15,12 +15,6 @@ def cyclical_encode(df):
     return df
 
 
-def make_lags(df, col, lags):
-    for lag in lags:
-        df[f"{col}_lag_{lag}h"] = df.groupby("detector_id")[col].shift(lag)
-    return df
-
-
 def encode_detectors(df):
     unique_detectors = sorted(df["detector_id"].unique())
     det2idx = {d: i for i, d in enumerate(unique_detectors)}
@@ -31,12 +25,13 @@ def encode_detectors(df):
 def scale_features(train, val, test, norm_cols, latlon_cols=["lon", "lat"]):
     std = StandardScaler()
     train[norm_cols] = std.fit_transform(train[norm_cols])
-    val[norm_cols]   = std.transform(val[norm_cols])
-    test[norm_cols]  = std.transform(test[norm_cols])
+    val[norm_cols] = std.transform(val[norm_cols])
+    if test is not None:
+        test[norm_cols] = std.transform(test[norm_cols])
 
     mm = MinMaxScaler()
     train[latlon_cols] = mm.fit_transform(train[latlon_cols])
-    val[latlon_cols]   = mm.transform(val[latlon_cols])
-    test[latlon_cols]  = mm.transform(test[latlon_cols])
-
+    val[latlon_cols] = mm.transform(val[latlon_cols])
+    if test is not None:
+        test[latlon_cols] = mm.transform(test[latlon_cols])
     return train, val, test, std, mm

@@ -23,11 +23,11 @@ def create_nhits_sequences(df, feature_cols, hist_offsets, horizon):
     X_list, Y_list, idx_list, det_list = [], [], [], []
 
     for det_id, df_det in df.groupby("detector_id"):
-        df_det = df_det.sort_values("timestamp").reset_index(drop=False)
+        df_det = df_det.sort_values("timestamp")
 
         values = df_det[feature_cols].values.astype(np.float32)
         target = df_det["congestion_index"].values.astype(np.float32)
-        idx = df_det["index"].values
+        idx = df_det.index.values
         det_idx = df_det["det_index"].values
 
         n = len(df_det)
