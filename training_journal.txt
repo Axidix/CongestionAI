@@ -67,3 +67,19 @@ The current models are playing it safe. They have learned that predicting "no sp
 (insights from new spike metrics)
 
 We will now proceed to a new grid search on adding crafted spikes features + personalized losses
+
+The experiments show that the best-performing configuration is deltas_only features combined with the spike_weighted loss, which simultaneously achieves the lowest RMSE and highest spike F1. In contrast, using all spike features (full_spike) tends to degrade performance unless paired with a specialized loss, and MSE consistently underperforms on spike-related metrics. Overall, the model benefits most from lightweight spike features (deltas) and a loss function designed to emphasize rare events, confirming that careful feature selection and spike-aware training objectives are crucial for balancing accuracy and spike detection.
+Full analysis (values+plots) can be found in the dedicated folder
+
+One issue to precise here: spike threshold is too low in the grid search (0.15).
+We will study the threshold to choose: 
+    Delta stats (z-normalized):
+    Mean: 0.1639
+    Std:  0.1985
+    Median: 0.1011
+    90th percentile: 0.3797
+    95th percentile: 0.5263
+    99th percentile: 0.9592
+
+    % flagged as spike with threshold=0.15: 36.4%
+    Recommended threshold (90th pct): 0.380

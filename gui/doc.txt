@@ -1,0 +1,2 @@
+streamlit cmd:
+C:\Users\adib4\AppData\Local\Programs\Python\Python311\python.exe -m streamlit run gui/test_streamlit.py

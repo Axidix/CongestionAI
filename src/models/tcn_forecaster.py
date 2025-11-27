@@ -249,7 +249,7 @@ class MultiHeadTCNForecaster(nn.Module):
         num_features: int,
         horizon: int,
         num_detectors: int,
-        emb_dim: int = 32,
+        emb_dim: int = 256,
         num_channels: Tuple[int, ...] = (64, 128, 128),
         kernel_size: int = 3,
         dropout: float = 0.1,
