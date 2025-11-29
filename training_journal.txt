@@ -83,3 +83,20 @@ We will study the threshold to choose:
 
     % flagged as spike with threshold=0.15: 36.4%
     Recommended threshold (90th pct): 0.380
+
+Let's start working on a more advanced model: TCN multi-head regressor
+The multi-head TCN is clearly good at smooth trajectory forecasting: it gives very competitive MAE/RMSE compared to NHITS, tracks the overall shape and timing of congestion reasonably well over 8 steps, and trains in a stable, non-overfitting way with nicely decreasing train/val losses. It’s especially solid on the first ~4–5 horizons, where errors stay low and correlation with the true signal is high.
+
+Let's scale to a 24hours horizon.
+Test training with same parameters as 8h horizon: The model remained stable, showed no overfitting, and achieved strong long-range correlation (0.61) with only a modest increase in MAE/RMSE. Short-term horizons (1–8) matched the 8-hour baseline, and errors increased smoothly rather than collapsing for later steps. Forecasts are coherent but overly smoothed, with peak amplitudes and spike events largely underestimated. Overall, this provides a solid long-horizon baseline and clearly indicates the next priorities: larger receptive fields (more depth or bigger kernels), attention pooling, and longer training to better capture high-frequency dynamics.
+
+Test of 14 configs over model depth, kernel_size, attention, SE:
+The architectural sweep highlighted that the TCN’s performance at 24-hour forecasting is primarily limited by its receptive field. Increasing the kernel size to 7 and adding a fourth TCN block consistently improved validation loss, with the best configuration (4 layers, kernel size 7) outperforming the baseline by roughly 1.3%. Width increases had smaller effects, and neither attention pooling nor SE blocks provided benefits at this stage. These results clearly show that expanding temporal context is the most effective direction before introducing more complex lag or weather features.
+
+Test of more history and weather lags:
+The best results were obtained with a sparse 24-hour weather lag strategy (lags at 0, 3, 6, 12, and 24 hours). This configuration outperformed all others in validation loss and improved overall trend tracking without increasing feature noise. Extending congestion history to 48 hours improved correlation slightly but offered no gain in error metrics. Dense weather lags up to 24 hours performed significantly worse, confirming that sparse long-range weather memory is more informative than dense, highly correlated lag inputs.
+48h history config will be kept for now.
+
+Reintroduction of binary features: seems quite useful, let's keep them.
+Creation of rolling volatility features: small gains in RMSE, correlation and spike precision, let's keep them.
+

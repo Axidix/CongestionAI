@@ -252,7 +252,8 @@ class MultiHeadTCNForecaster(nn.Module):
         emb_dim: int = 256,
         num_channels: Tuple[int, ...] = (64, 128, 128),
         kernel_size: int = 3,
-        dropout: float = 0.1,
+        dropout_encoder: float = 0.1,
+        dropout_heads: float = 0.1,
         use_se: bool = False,
         head_ranges: Optional[Dict[str, Tuple[int, int]]] = None,
         pooling: str = "last",
@@ -276,7 +277,7 @@ class MultiHeadTCNForecaster(nn.Module):
             input_dim=num_features + emb_dim,
             num_channels=num_channels,
             kernel_size=kernel_size,
-            dropout=dropout,
+            dropout=dropout_encoder,
             use_se=use_se,
         )
         
@@ -288,7 +289,7 @@ class MultiHeadTCNForecaster(nn.Module):
         
         # Range heads
         self.heads = nn.ModuleDict({
-            name: RangeHead(encoder_dim, cfg["size"], name, dropout)
+            name: RangeHead(encoder_dim, cfg["size"], name, dropout_heads)
             for name, cfg in self.head_config.items()
         })
     

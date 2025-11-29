@@ -46,15 +46,18 @@ class SpikeFeatureConfig:
     """
     # Feature toggles
     enable_deltas: bool = True
-    enable_abs_deltas: bool = True
-    enable_rolling_stats: bool = True
+    enable_abs_deltas: bool = False
+    enable_rolling_stats: bool = False
     enable_spike_labels: bool = False  # Optional, for analysis
     
     # Feature parameters
     delta_lags: List[int] = field(default_factory=lambda: [1, 2, 4, 6])
-    rolling_windows: List[int] = field(default_factory=lambda: [3, 6])
-    spike_quantile: float = 0.90
-    spike_threshold: Optional[float] = None  # If set, overrides quantile
+    rolling_windows: List[int] = field(default_factory=lambda: [3, 6, 12])
+    
+    # NEW: Volatility feature
+    enable_volatility: bool = False
+    volatility_window: int = 3
+    volatility_binary_threshold: Optional[float] = None  # If set, adds is_high_vol binary feature
     
     # Target column
     target_col: str = "congestion_index"
@@ -62,37 +65,32 @@ class SpikeFeatureConfig:
     def get_feature_columns(self) -> List[str]:
         """Return list of feature columns that will be created."""
         cols = []
-        
         if self.enable_deltas:
-            cols.extend([f"delta_{lag}h" for lag in self.delta_lags])
-        
+            cols += [f"delta_{lag}h" for lag in self.delta_lags]
         if self.enable_abs_deltas:
-            cols.extend([f"abs_delta_{lag}h" for lag in self.delta_lags])
-        
+            cols += [f"abs_delta_{lag}h" for lag in self.delta_lags]
         if self.enable_rolling_stats:
             for w in self.rolling_windows:
-                cols.extend([
-                    f"rolling_mean_{w}h",
-                    f"rolling_std_{w}h",
-                    f"rolling_range_{w}h"
-                ])
-        
+                cols += [f"rolling_mean_{w}h", f"rolling_std_{w}h"]
+        if self.enable_volatility:
+            cols.append(f"rolling_vol_{self.volatility_window}h")
+            if self.volatility_binary_threshold is not None:
+                cols.append("is_high_vol")
         return cols
     
     def get_normalization_columns(self) -> List[str]:
         """Return columns that should be normalized (StandardScaler)."""
         cols = []
-        
         if self.enable_deltas:
-            cols.extend([f"delta_{lag}h" for lag in self.delta_lags])
-        
+            cols += [f"delta_{lag}h" for lag in self.delta_lags]
+        if self.enable_abs_deltas:
+            cols += [f"abs_delta_{lag}h" for lag in self.delta_lags]
         if self.enable_rolling_stats:
             for w in self.rolling_windows:
-                cols.extend([
-                    f"rolling_std_{w}h",
-                    f"rolling_range_{w}h"
-                ])
-        
+                cols += [f"rolling_mean_{w}h", f"rolling_std_{w}h"]
+        if self.enable_volatility:
+            cols.append(f"rolling_vol_{self.volatility_window}h")
+            # Note: is_high_vol is binary, no normalization needed
         return cols
 
 
@@ -211,6 +209,7 @@ def add_spike_features(df: pd.DataFrame,
     Returns:
         df with spike features added
     """
+    df = df.copy()
     col = config.target_col
     
     if config.enable_deltas or config.enable_abs_deltas:
@@ -232,6 +231,18 @@ def add_spike_features(df: pd.DataFrame,
             threshold=config.spike_threshold,
             quantile=config.spike_quantile
         )
+    
+    # NEW: Volatility feature
+    if config.enable_volatility:
+        col_name = f"rolling_vol_{config.volatility_window}h"
+        df[col_name] = (
+            df.groupby("detector_id")["congestion_index"]
+              .transform(lambda x: x.rolling(config.volatility_window).std())
+              .fillna(0)
+        )
+        
+        if config.volatility_binary_threshold is not None:
+            df["is_high_vol"] = (df[col_name] > config.volatility_binary_threshold).astype(float)
     
     return df
 
