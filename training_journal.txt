@@ -100,3 +100,24 @@ The best results were obtained with a sparse 24-hour weather lag strategy (lags 
 Reintroduction of binary features: seems quite useful, let's keep them.
 Creation of rolling volatility features: small gains in RMSE, correlation and spike precision, let's keep them.
 
+A batch of 15 experiments was run to test variations in spike thresholds, delta-lag configurations, loss formulations, TCN depth, kernel size, pooling strategies, and extended history/weather features. Because several experiments used different loss types or spike weights, validation losses were not comparable across the entire batch; evaluation relied only on model-agnostic metrics (MAE, RMSE, correlations, spike recall/precision/F1, and direction metrics).
+The main gains were associated with architectural changes. Increasing the temporal receptive field (36-hour history, wider kernels) and adding deeper TCN stacks produced consistent improvements in both forecasting accuracy and spike-related metrics. Dense weather lags and volatility features contributed additional incremental improvements. Average pooling performed better than last-timestep pooling for spike detection. Loss tuning with lower spike weights (≈2) showed potential when evaluated through final metrics only.
+Overall, improvements were mainly linked to expanded temporal context and receptive-field adjustments rather than loss-type changes. These directions are the most promising for scaling toward a larger multi-detector model.
+
+Test scheduling:
+Four LR schedulers were tested with lr=1e-4 (none, Cosine, Cosine Warm Restarts, One-Cycle) while keeping architecture, features, and loss constant. Cosine Annealing produced the best validation loss (0.1124), the best correlation (0.6327), and the most stable spike metrics. Warm Restarts and One-Cycle were less stable and showed no advantage on this short training regime. Cosine also reduced overfitting compared to no scheduler. Conclusion: Cosine Annealing LR is now the recommended default training schedule.
+
+Test optimizers:
+Optimizer experiments showed that forecasting performance varies only minimally across optimization algorithms. AdamW and Adam with cosine annealing perform similarly, with the best overall configuration being AdamW (lr=3e-4, β₂=0.99). Spike detection metrics remain largely unchanged across optimizers, confirming that the optimizer is not the performance bottleneck at this stage. The model has reached an optimizer-insensitive plateau, meaning further improvements should focus on regularization, feature engineering, and training dynamics rather than optimizer changes.
+
+Test regularization:
+Tested a range of regularization configurations (dropout, weight decay, gradient clipping, reduced embedding dimension). Results show the model is robust to most regularization changes. Aggressive regularization (drop0.25 + wd1e-3 + clip0.5) gives the best global correlation and spike-direction accuracy, while a smaller model yields the best RMSE and spike precision. No configuration meaningfully improves spike recall or F1, indicating that model capacity and regularization are not the bottleneck for spikes. Future work should focus on feature engineering, spike-specific loss weighting, and data balancing.
+
+Scaling to 100 detectors:
+Great loss in performance: train/val loss doubled, MAE higher... Model needs more depth? more features?
+
+Optimization of training:
+Use of torch.compile, amp scaler, larger batch size, workers to reduce training time --> 6min per epoch to 2.5min
+Performances don't seem to be affected consequently.
+
+
