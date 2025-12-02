@@ -4,19 +4,21 @@ from torch.utils.data import Dataset
 
 class NHitsDataset(Dataset):
     def __init__(self, X_hist, Y, det_ids):
-        self.X = X_hist
-        self.Y = Y
-        self.det_ids = det_ids
+        # Pre-convert to tensors once
+        if isinstance(X_hist, np.ndarray):
+            self.X = torch.from_numpy(np.ascontiguousarray(X_hist)).float()
+            self.Y = torch.from_numpy(np.ascontiguousarray(Y)).float()
+            self.det_ids = torch.from_numpy(np.ascontiguousarray(det_ids)).long()
+        else:
+            self.X = X_hist.contiguous().float()
+            self.Y = Y.contiguous().float()
+            self.det_ids = det_ids.contiguous().long()
 
     def __len__(self):
         return len(self.Y)
 
     def __getitem__(self, idx):
-        return (
-            torch.from_numpy(self.X[idx]).float(),
-            torch.from_numpy(self.Y[idx]).float(),
-            torch.tensor(self.det_ids[idx], dtype=torch.long)
-        )
+        return self.X[idx], self.Y[idx], self.det_ids[idx]
 
 
 def create_nhits_sequences(df, feature_cols, hist_offsets, horizon):

@@ -118,6 +118,9 @@ Great loss in performance: train/val loss doubled, MAE higher... Model needs mor
 
 Optimization of training:
 Use of torch.compile, amp scaler, larger batch size, workers to reduce training time --> 6min per epoch to 2.5min
-Performances don't seem to be affected consequently.
+Performances don't seem to be affected consequently. However it still means about 1h per training.
+We might as well try a transfomer models, despite iterating on TCN for a long time.
+
+
 
 

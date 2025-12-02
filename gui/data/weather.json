@@ -1,0 +1,35 @@
+{
+  "current": {
+    "temp": 8.5,
+    "description": "broken clouds",
+    "wind_speed": 12,
+    "precip": 0.0
+  },
+  "hourly": [
+    {"hour": 0, "temp": 8.5, "precip": 0.0},
+    {"hour": 1, "temp": 8.1, "precip": 0.0},
+    {"hour": 2, "temp": 7.9, "precip": 0.2},
+    {"hour": 3, "temp": 7.5, "precip": 0.1},
+    {"hour": 4, "temp": 7.2, "precip": 0.0},
+    {"hour": 5, "temp": 6.8, "precip": 0.0},
+    {"hour": 6, "temp": 6.5, "precip": 0.0},
+    {"hour": 7, "temp": 7.1, "precip": 0.0},
+    {"hour": 8, "temp": 8.3, "precip": 0.0},
+    {"hour": 9, "temp": 9.7, "precip": 0.0},
+    {"hour": 10, "temp": 11.2, "precip": 0.0},
+    {"hour": 11, "temp": 12.5, "precip": 0.0},
+    {"hour": 12, "temp": 13.4, "precip": 0.0},
+    {"hour": 13, "temp": 14.1, "precip": 0.0},
+    {"hour": 14, "temp": 14.3, "precip": 0.1},
+    {"hour": 15, "temp": 13.8, "precip": 0.3},
+    {"hour": 16, "temp": 12.9, "precip": 0.2},
+    {"hour": 17, "temp": 11.7, "precip": 0.0},
+    {"hour": 18, "temp": 10.5, "precip": 0.0},
+    {"hour": 19, "temp": 9.8, "precip": 0.0},
+    {"hour": 20, "temp": 9.2, "precip": 0.0},
+    {"hour": 21, "temp": 8.9, "precip": 0.0},
+    {"hour": 22, "temp": 8.6, "precip": 0.0},
+    {"hour": 23, "temp": 8.4, "precip": 0.0},
+    {"hour": 24, "temp": 8.3, "precip": 0.0}
+  ]
+}

@@ -76,7 +76,7 @@ def run_dl_experiment_optimized(
         pin_memory=True,
         num_workers=num_workers,
         persistent_workers=True if num_workers > 0 else False,
-        prefetch_factor=2 if num_workers > 0 else None,
+        prefetch_factor=4 if num_workers > 0 else None,
     )
 
     val_loader = DataLoader(
@@ -86,7 +86,7 @@ def run_dl_experiment_optimized(
         pin_memory=True,
         num_workers=num_workers,
         persistent_workers=True if num_workers > 0 else False,
-        prefetch_factor=2 if num_workers > 0 else None,
+        prefetch_factor=4 if num_workers > 0 else None,
     )
 
     if X_test_hist is None or Y_test is None or test_det_idx is None:
@@ -283,6 +283,10 @@ import torch
 from torch.amp import GradScaler
 
 torch.set_float32_matmul_precision('high')
+torch.set_num_threads(16)
+torch.backends.cudnn.benchmark = True
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 broad_exp_name = "TCN-100det_24horizon-capacity_scaling"
 
@@ -342,7 +346,7 @@ optim_config = {"type": "adamW", "lr": 3e-4, "weight_decay": 1e-3, "betas": (0.9
 schedule_config = {"type": "CosineAnnealingLR", "T_max": epochs, "eta_min": 1e-6}
 grad_clip = 0.5
 batch_size = 2048
-num_workers = 4
+num_workers = 12
 use_amp = True
 use_compile = True
 
