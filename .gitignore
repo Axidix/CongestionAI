@@ -7,7 +7,7 @@ questions.txt
 venv/
 
 gui/doc.txt
-
+gui/data
 
 
 # Byte-compiled / optimized / DLL files

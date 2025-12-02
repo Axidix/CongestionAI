@@ -121,6 +121,10 @@ Use of torch.compile, amp scaler, larger batch size, workers to reduce training 
 Performances don't seem to be affected consequently. However it still means about 1h per training.
 We might as well try a transfomer models, despite iterating on TCN for a long time.
 
+Ran a controlled comparison between our best TCN and several Transformer architectures with longer history (48–96h), on 20 detectors. The 24h TCN (≈1.9M params) still performs extremely well (val loss ≈ 0.111, spike F1 ≈ 0.48). Medium-size Transformers with 72–96h history can slightly improve validation loss and spike MAE (best config: 72h Transformer with “last” pooling), but overall spike F1 and directional metrics remain very close to the TCN, while training time increases by a factor ~6–8 and models become harder to train. A very large Transformer (≈6.5M params) yields marginal F1 gains but worse val loss and heavy compute. 
+Conclusion: keep the Transformer as a high-performance offline / demo model, and focus on a lighter TCN (24h history) as the main deployable model, possibly further compressed (smaller emb_dim / channels) with minimal loss in accuracy.
+
+We will now stop experiments that increase complexity: we aime for a lighter version of the model that keeps good accuracy.
 
 
 
