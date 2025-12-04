@@ -1,6 +1,11 @@
 import os
 import numpy as np
+import pandas as pd
+from typing import Dict, Any
+from torch import nn
+
 from src.utils.plots import plot_block_predictions
+from src.model_pipelines.dl_pipeline import predict
 
 
 def evaluate_block_predictions(Y_true, Y_pred):
@@ -336,3 +341,80 @@ def evaluate_and_plot_block(df, horizon=24,
     # Merge all metrics
     all_metrics = {**metrics, **spike_metrics}
     return all_metrics
+
+
+
+
+def evaluate_model(
+    model: nn.Module,
+    X_val: np.memmap,
+    Y_val: np.memmap,
+    det_val: np.ndarray,
+    idx_val: np.ndarray,
+    val_df: pd.DataFrame,
+    forecast_horizon: int,
+    eval_spike_threshold: float,
+    exp_name: str,
+    output_dir: str,
+    device: str = "cuda",
+) -> Dict[str, Any]:
+    """Evaluate model and generate plots."""
+    print("\n" + "="*70)
+    print(f"EVALUATION: {exp_name}")
+    print("="*70)
+    
+    # Predict
+    print("\nGenerating predictions...")
+    preds = predict(model, X_val, det_val, device=device, batch_size=4096)
+    
+    # idx_val contains orig_idx label values, use .loc
+    df_subset = val_df.loc[idx_val].copy()
+    
+    eval_df = pd.DataFrame({
+        "row_idx": idx_val,
+        "timestamp": df_subset["timestamp"].values,
+        "detector_id": df_subset["detector_id"].values,
+    })
+    
+    # Add predictions
+    for h in range(1, forecast_horizon + 1):
+        eval_df[f"pred_{h}h"] = preds[:, h-1].numpy()
+    
+    # Add ground truth - use .loc since idx_val contains labels
+    for h in range(1, forecast_horizon + 1):
+        shifted = val_df.groupby("detector_id")["congestion_index"].shift(-h)
+        eval_df[f"future_{h}h"] = shifted.loc[idx_val].values
+    
+    eval_df["congestion_index"] = df_subset["congestion_index"].values
+    eval_df = eval_df.dropna()
+    
+    print(f"  Eval samples: {len(eval_df):,}")
+    
+    # Evaluate
+    metrics = evaluate_and_plot_block(
+        eval_df,
+        horizon=forecast_horizon,
+        years=[2019],
+        plot_years=[2019],
+        filename=exp_name,
+        dir=output_dir,
+        max_blocks=20,
+        eval_spikes=True,
+        spike_threshold=eval_spike_threshold
+    )
+    
+    print(f"\n✓ Evaluation complete!")
+    if metrics:
+        mae = metrics.get('mae', 'N/A')
+        rmse = metrics.get('rmse', 'N/A')
+        spike_recall = metrics.get('spike_recall', 'N/A')
+        spike_precision = metrics.get('spike_precision', 'N/A')
+        spike_f1 = metrics.get('spike_f1', 'N/A')
+        
+        print(f"  MAE: {mae:.4f}" if isinstance(mae, (int, float)) else f"  MAE: {mae}")
+        print(f"  RMSE: {rmse:.4f}" if isinstance(rmse, (int, float)) else f"  RMSE: {rmse}")
+        print(f"  Spike Recall: {spike_recall:.4f}" if isinstance(spike_recall, (int, float)) else f"  Spike Recall: {spike_recall}")
+        print(f"  Spike Precision: {spike_precision:.4f}" if isinstance(spike_precision, (int, float)) else f"  Spike Precision: {spike_precision}")
+        print(f"  Spike F1: {spike_f1:.4f}" if isinstance(spike_f1, (int, float)) else f"  Spike F1: {spike_f1}")
+    
+    return metrics

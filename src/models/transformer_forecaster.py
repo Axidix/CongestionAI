@@ -230,7 +230,7 @@ class MultiHeadTransformerForecaster(nn.Module):
         det_emb_dim: int = 64,
         pooling: str = "attention",
         use_positional_encoding: bool = True,
-        max_seq_len: int = 64,
+        max_seq_len: int = 128,
         head_ranges: Optional[Dict[str, Tuple[int, int]]] = None,
     ):
         super().__init__()

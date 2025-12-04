@@ -90,12 +90,12 @@ class MemmapSequenceBuilder:
         sample_idx = 0
         for det_id, n_samples in sample_counts:
             det_df = df[df["detector_id"] == det_id].copy()
-            det_df = det_df.sort_values("timestamp").reset_index(drop=True)
+            det_df = det_df.sort_values("timestamp").reset_index()
             
             det_index = det_df["det_index"].iloc[0]
             feature_matrix = det_df[feature_cols].values.astype(np.float32)
             target_series = det_df[target_col].values.astype(np.float32)
-            original_indices = det_df.index.values
+            original_indices = det_df["orig_idx"].values
             
             for i in range(max_offset, len(det_df) - forecast_horizon):
                 # History features
