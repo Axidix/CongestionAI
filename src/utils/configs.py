@@ -15,6 +15,7 @@ class DataConfig:
     years_val: Tuple[int, ...] = (2019,)
     years_test: Tuple[int, ...] = ()
     cache_dir: str = "prepared_data/memmap_cache"
+    congestion_lags: Optional[Tuple[int, ...]] = None  # e.g., (168,) for weekly lag
     
     feature_cols_norm: Tuple[str, ...] = (
         "temperature", "precipitation", "visibility", "congestion_index", "free_flow_speed"
@@ -71,3 +72,16 @@ class TrainingConfig:
     spike_weight: float = 3.0
     spike_threshold: float = 0.15
     eval_spike_threshold: float = 0.38
+    
+    # Optimizer config
+    optimizer: str = "adamw"  # "adamw", "radam", "lion"
+    
+    # Scheduler config
+    scheduler: str = "cosine"  # "cosine", "onecycle", "cosine_warm"
+    # OneCycleLR params
+    onecycle_max_lr: float = 5e-4
+    onecycle_div_factor: float = 10.0
+    onecycle_final_div_factor: float = 100.0
+    # CosineAnnealingWarmRestarts params
+    cosine_warm_T_0: int = 4
+    cosine_warm_T_mult: int = 2

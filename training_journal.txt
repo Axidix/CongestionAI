@@ -131,6 +131,10 @@ Training of TCN was stable with no overfitting, but the model plateaued early at
 I trained a full-scale transformer model (72h history, 24h horizon) using the same spike-weighted loss and memmap pipeline. After 5 epochs, the transformer reached MAE ≈ 0.193 and corr ≈ 0.627, with spike_F1 ≈ 0.165 and spike_delta_corr ≈ 0.496.
 The TCN baseline (48h history) on the same full dataset is slightly better on all metrics (MAE ≈ 0.189, corr ≈ 0.639, spike_F1 ≈ 0.172, spike_delta_corr ≈ 0.506). The transformer is learning meaningful structure but does not outperform the TCN, despite being more complex and using longer history. Given the training cost and the small margins, I decided to keep the TCN as the main model and not invest further in transformer tuning for this project.
 
+I compared two architectural directions on the full-scale TCN: increasing network depth (extra convolutional block) and increasing historical context from 48h to 72h.
+The deeper TCN showed consistent improvements across all metrics. It slightly reduced validation loss and MAE, but more importantly it improved spike-related metrics: higher spike recall, spike F1, and spike delta-correlation. This indicates a model that reacts better to rapid congestion changes.
+The 72h-history TCN achieved the lowest validation loss overall but degraded spike metrics. The model became smoother and less reactive, which is undesirable for capturing sudden congestion events.
+Overall, the deeper TCN on 48h history shows the best balance between accuracy and reactivity. This will be used as the base for the final long training run.
 
 
 

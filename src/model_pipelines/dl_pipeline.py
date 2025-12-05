@@ -18,6 +18,77 @@ from src.model_pipelines.losses import LossConfig, create_loss
 from src.utils.plots import plot_training_curves
 from src.utils.memmap_sequences import MemmapDataset
 
+
+def create_optimizer(model: nn.Module, train_cfg: TrainingConfig):
+    """Create optimizer based on configuration."""
+    opt_name = train_cfg.optimizer.lower()
+    
+    if opt_name == "adamw":
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=train_cfg.lr,
+            weight_decay=train_cfg.weight_decay,
+            betas=train_cfg.betas,
+        )
+    elif opt_name == "radam":
+        optimizer = torch.optim.RAdam(
+            model.parameters(),
+            lr=train_cfg.lr,
+            weight_decay=train_cfg.weight_decay,
+            betas=train_cfg.betas,
+        )
+    elif opt_name == "lion":
+        try:
+            from lion_pytorch import Lion
+            optimizer = Lion(
+                model.parameters(),
+                lr=train_cfg.lr,
+                weight_decay=train_cfg.weight_decay,
+            )
+        except ImportError:
+            raise ImportError("Lion optimizer requires: pip install lion-pytorch")
+    else:
+        raise ValueError(f"Unknown optimizer: {opt_name}")
+    
+    return optimizer
+
+
+def create_scheduler(optimizer, train_cfg: TrainingConfig, steps_per_epoch: int = None):
+    """Create scheduler based on configuration."""
+    sched_name = train_cfg.scheduler.lower()
+    
+    if sched_name == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=train_cfg.epochs,
+            eta_min=1e-6
+        )
+    elif sched_name == "onecycle":
+        if steps_per_epoch is None:
+            raise ValueError("OneCycleLR requires steps_per_epoch")
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=train_cfg.onecycle_max_lr,
+            epochs=train_cfg.epochs,
+            steps_per_epoch=steps_per_epoch,
+            div_factor=train_cfg.onecycle_div_factor,
+            final_div_factor=train_cfg.onecycle_final_div_factor,
+        )
+    elif sched_name == "cosine_warm":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer,
+            T_0=train_cfg.cosine_warm_T_0,
+            T_mult=train_cfg.cosine_warm_T_mult,
+            eta_min=1e-6,
+        )
+    elif sched_name == "none":
+        scheduler = None
+    else:
+        raise ValueError(f"Unknown scheduler: {sched_name}")
+    
+    return scheduler
+
+
 def train_model(
     model,
     train_loader,
@@ -29,7 +100,8 @@ def train_model(
     device="cuda",
     num_epochs=50,
     grad_clip=1.0,   
-    patience=None     
+    patience=None,
+    scheduler_step_per_batch=False,  # NEW: for OneCycleLR
 ):
 
     train_losses = []
@@ -44,11 +116,17 @@ def train_model(
         scheduler is not None and 
         "plateau" in scheduler.__class__.__name__.lower()
     )
+    
+    scheduler_is_onecycle = (
+        scheduler is not None and
+        "onecycle" in scheduler.__class__.__name__.lower()
+    )
 
     # CosineAnnealingLR should be stepped per epoch, not per iteration
     scheduler_is_epoch_based = (
         scheduler is not None and 
-        not scheduler_is_plateau
+        not scheduler_is_plateau and
+        not scheduler_is_onecycle
     )
 
     for epoch in range(num_epochs):
@@ -92,6 +170,10 @@ def train_model(
                 optimizer.step()
 
             epoch_train_loss += loss.item()
+            
+            # OneCycleLR steps per batch
+            if scheduler_is_onecycle:
+                scheduler.step()
 
         epoch_train_loss /= len(train_loader)
         train_losses.append(epoch_train_loss)
@@ -126,10 +208,8 @@ def train_model(
         # -------------------------
         # Early Stopping & Best Model Tracking
         # -------------------------
-        # FIX: Check if val_loss is LESS than best (improvement)
         if epoch_val_loss < best_val_loss:
             best_val_loss = epoch_val_loss
-            # Deep copy to avoid reference issues
             if hasattr(model, '_orig_mod'):
                 best_state = copy.deepcopy(model._orig_mod.state_dict())
             else:
@@ -160,7 +240,6 @@ def train_model(
         else:
             model.load_state_dict(best_state)
     else:
-        # Safety: if no best_state, use current state
         if hasattr(model, '_orig_mod'):
             best_state = copy.deepcopy(model._orig_mod.state_dict())
         else:
@@ -320,22 +399,13 @@ def train_full_scale(
     print(f"  Batch size: {train_cfg.batch_size}")
     print(f"  Num workers: {train_cfg.num_workers}")
     
-    # Create optimizer
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=train_cfg.lr,
-        weight_decay=train_cfg.weight_decay,
-        betas=train_cfg.betas,
-    )
-    print(f"\nOptimizer: AdamW(lr={train_cfg.lr}, weight_decay={train_cfg.weight_decay}, betas={train_cfg.betas})")
+    # Create optimizer (using factory)
+    optimizer = create_optimizer(model, train_cfg)
+    print(f"\nOptimizer: {train_cfg.optimizer}(lr={train_cfg.lr}, weight_decay={train_cfg.weight_decay})")
     
-    # Create scheduler
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=train_cfg.epochs,
-        eta_min=1e-6
-    )
-    print(f"Scheduler: CosineAnnealingLR(T_max={train_cfg.epochs}, eta_min=1e-6)")
+    # Create scheduler (using factory)
+    scheduler = create_scheduler(optimizer, train_cfg, steps_per_epoch=len(train_loader))
+    print(f"Scheduler: {train_cfg.scheduler}")
     
     # Create loss
     loss_cfg = LossConfig(
@@ -416,7 +486,6 @@ def train_full_scale(
     # Save FINAL model checkpoint (last epoch state)
     final_model_path = f"{output_dir}/checkpoints/final_model_{exp_name}.pt"
     
-    # Get the underlying model if compiled
     if hasattr(model, '_orig_mod'):
         final_state = model._orig_mod.state_dict()
     else:

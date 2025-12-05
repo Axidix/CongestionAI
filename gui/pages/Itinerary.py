@@ -33,6 +33,8 @@ if "last_inputs" not in st.session_state:
     st.session_state.last_inputs = None
 if "locations" not in st.session_state:
     st.session_state.locations = None  # Store geocoded locations
+if "hourly_route_cache" not in st.session_state:
+    st.session_state.hourly_route_cache = {}  # Cache: {(start_node, end_node, route_type, hour): travel_time}
 
 # ------------------------------------------------------
 # Load precomputed graph
@@ -397,7 +399,7 @@ def get_route_display_info(routes_data: List[Dict], selected_idx: int) -> List[D
             display_info.append({
                 **rd,
                 "is_selected": True,
-                "display_color": None,  # Will use gradient
+                "display_color": None,
                 "color_hex": None,
                 "color_label": "Congestion"
             })
@@ -543,13 +545,13 @@ def render_route_selector(routes: List[Dict], selected_idx: int) -> None:
         if is_selected:
             # Selected route - green border container
             with st.container(border=True):
-                cols = st.columns([1, 6, 3])
+                cols = st.columns([1, 5, 4])  # Wider last column for SELECTED label
                 with cols[0]:
                     st.markdown("🌈")  # Gradient indicator
                 with cols[1]:
                     st.markdown(f"**Route {i + 1}**")
                 with cols[2]:
-                    st.success("SELECTED", icon="✅")
+                    st.markdown("✅ **SELECTED**")  # Use markdown instead of st.success
                 
                 stat_cols = st.columns(3)
                 with stat_cols[0]:
@@ -563,15 +565,21 @@ def render_route_selector(routes: List[Dict], selected_idx: int) -> None:
             alt_color_idx = sum(1 for j in range(i) if j != selected_idx)
             alt_color = ALTERNATIVE_COLORS[alt_color_idx % len(ALTERNATIVE_COLORS)]
             
+            # Use actual colored circles instead of shortcodes
+            if alt_color['label'] == "Blue":
+                color_emoji = "🔵"
+            else:  # Purple
+                color_emoji = "🟣"
+            
             with st.container(border=True):
-                cols = st.columns([1, 6, 3])
+                cols = st.columns([1, 5, 4])
                 with cols[0]:
-                    st.markdown(f":{alt_color['label'].lower()}_circle:")
+                    st.markdown(color_emoji)
                 with cols[1]:
                     st.markdown(f"**Route {i + 1}**")
                 with cols[2]:
                     if is_best:
-                        st.info("BEST", icon="⭐")
+                        st.markdown("⭐ **BEST**")
                 
                 stat_cols = st.columns(3)
                 with stat_cols[0]:
@@ -595,7 +603,26 @@ with left_col:
     st.subheader("📍 Route Inputs")
     
     start_text = st.text_input("Starting point", placeholder="e.g., Alexanderplatz, Berlin")
+    
+    # Show resolved start address preview
+    if start_text.strip():
+        with st.spinner(""):
+            lat, lon, result = geocode(start_text)
+            if lat is not None:
+                st.caption(f"📍 _{result}_")
+            else:
+                st.caption(f"⚠️ _{result}_")
+    
     dest_text = st.text_input("Destination", placeholder="e.g., Brandenburg Gate, Berlin")
+    
+    # Show resolved destination address preview
+    if dest_text.strip():
+        with st.spinner(""):
+            lat, lon, result = geocode(dest_text)
+            if lat is not None:
+                st.caption(f"📍 _{result}_")
+            else:
+                st.caption(f"⚠️ _{result}_")
     
     st.divider()
     
@@ -615,13 +642,14 @@ with left_col:
         horizontal=True
     )
     
-    st.divider()
-    
     # Route selection panel (only show when routes exist)
+    # Moved BEFORE the divider and legend, and show unconditionally when data exists
     if st.session_state.routes_data is not None:
+        st.divider()
         st.subheader("🛤️ Choose Route")
         render_route_selector(st.session_state.routes_data, st.session_state.selected_route_idx)
-        st.divider()
+    
+    st.divider()
     
     # Congestion legend
     st.caption("**Selected Route Colors:**")
@@ -655,35 +683,37 @@ elif st.session_state.last_inputs is not None:
     if last["route_type"] != route_type or last["hour"] != hour:
         should_compute = True
 
-with right_col:
-    if should_compute:
-        # Use stored addresses if just toggling, otherwise use current input
-        if compute_btn:
-            use_start = start_text
-            use_dest = dest_text
-        else:
-            use_start = st.session_state.last_inputs["start_text"]
-            use_dest = st.session_state.last_inputs["dest_text"]
-        
-        with st.spinner("Computing routes..."):
-            result, error_msg = compute_routes(use_start, use_dest, hour, route_type)
-            
-            if result is not None:
-                st.session_state.routes_data = result["routes"]
-                st.session_state.locations = result["locations"]
-                st.session_state.selected_route_idx = 0  # Reset to best route
-                st.session_state.last_inputs = {
-                    "start_text": use_start,
-                    "dest_text": use_dest,
-                    "hour": hour,
-                    "route_type": route_type
-                }
-            else:
-                if compute_btn:  # Only clear on explicit compute failure
-                    st.session_state.routes_data = None
-                    st.session_state.locations = None
-                    st.session_state.last_inputs = None
+# Compute routes BEFORE rendering right column content
+if should_compute:
+    # Use stored addresses if just toggling, otherwise use current input
+    if compute_btn:
+        use_start = start_text
+        use_dest = dest_text
+    else:
+        use_start = st.session_state.last_inputs["start_text"]
+        use_dest = st.session_state.last_inputs["dest_text"]
     
+    with st.spinner("Computing routes..."):
+        result, error_msg = compute_routes(use_start, use_dest, hour, route_type)
+        
+        if result is not None:
+            st.session_state.routes_data = result["routes"]
+            st.session_state.locations = result["locations"]
+            st.session_state.selected_route_idx = 0  # Reset to best route
+            st.session_state.last_inputs = {
+                "start_text": use_start,
+                "dest_text": use_dest,
+                "hour": hour,
+                "route_type": route_type
+            }
+            st.rerun()  # Rerun to show route selector immediately
+        else:
+            if compute_btn:  # Only clear on explicit compute failure
+                st.session_state.routes_data = None
+                st.session_state.locations = None
+                st.session_state.last_inputs = None
+
+with right_col:
     # Show error if any
     if error_msg:
         st.error(error_msg)
@@ -755,24 +785,167 @@ with right_col:
         
         st.caption(f"_Showing {len(routes)} routes • Departure: +{locs['hour']}h from now_")
         
-        # Detailed segment info (in expander)
-        with st.expander("🔍 Top Congested Segments (selected route)"):
-            if selected_route['top_congested']:
-                for i, seg in enumerate(selected_route['top_congested'][:5]):
-                    cong_pct = seg['congestion'] * 100
-                    if cong_pct > 60:
-                        emoji = "🔴"
-                    elif cong_pct > 30:
-                        emoji = "🟡"
+        # Two expanders side by side using columns
+        exp_col1, exp_col2 = st.columns(2)
+        
+        with exp_col1:
+            with st.expander("⏱️ Time Breakdown", expanded=False):
+                # Calculate time spent in each congestion level
+                segs = selected_route['segs']
+                
+                time_low = sum(s['t_cong'] for s in segs if s['congestion'] < 0.3)
+                time_med = sum(s['t_cong'] for s in segs if 0.3 <= s['congestion'] < 0.6)
+                time_high = sum(s['t_cong'] for s in segs if s['congestion'] >= 0.6)
+                total_time = selected_route['cong_t']
+                
+                # Display as progress bars
+                st.caption("Time spent by congestion level:")
+                
+                if total_time > 0:
+                    # Low congestion
+                    pct_low = (time_low / total_time) * 100
+                    st.markdown(f"🟢 **Low** ({time_low:.1f} min)")
+                    st.progress(pct_low / 100)
+                    
+                    # Medium congestion
+                    pct_med = (time_med / total_time) * 100
+                    st.markdown(f"🟡 **Medium** ({time_med:.1f} min)")
+                    st.progress(pct_med / 100)
+                    
+                    # High congestion
+                    pct_high = (time_high / total_time) * 100
+                    st.markdown(f"🔴 **High** ({time_high:.1f} min)")
+                    st.progress(pct_high / 100)
+                    
+                    # Summary
+                    st.divider()
+                    if pct_high > 30:
+                        st.warning(f"⚠️ {pct_high:.0f}% of your trip is in heavy traffic")
+                    elif pct_low > 70:
+                        st.success(f"✅ {pct_low:.0f}% of your trip is free-flowing")
                     else:
-                        emoji = "🟢"
-                    st.markdown(
-                        f"{emoji} Segment {i+1}: **{cong_pct:.0f}%** congestion "
-                        f"({seg['length_km']*1000:.0f}m, {seg['t_cong']:.1f} min)"
-                    )
-            else:
-                st.info("No significant congestion on this route.")
-    
+                        st.info(f"ℹ️ Mixed traffic conditions")
+        
+        with exp_col2:
+            with st.expander("🕐 Best Departure Time", expanded=False):
+                st.caption("Optimal route travel time by hour:")
+                
+                current_hour = locs['hour']
+                departure_options = []
+                
+                # Get start/end nodes for route recomputation
+                start_node = ox.nearest_nodes(G, locs['lon1'], locs['lat1'])
+                end_node = ox.nearest_nodes(G, locs['lon2'], locs['lat2'])
+                
+                # Cache key base (same for all hours with same endpoints and route type)
+                cache_key_base = (start_node, end_node, locs['route_type'])
+                
+                # Check -3 to +3 hours around selected time (within 0-24 bounds)
+                start_offset = max(0, current_hour - 3)
+                end_offset = min(25, current_hour + 4)  # +4 because range is exclusive
+                
+                for test_hour in range(start_offset, end_offset):
+                    cache_key = (*cache_key_base, test_hour)
+                    
+                    # Check cache first
+                    if cache_key in st.session_state.hourly_route_cache:
+                        test_cong_t = st.session_state.hourly_route_cache[cache_key]
+                    else:
+                        # Compute and cache
+                        prepare_graph_with_travel_times(test_hour)
+                        
+                        try:
+                            # Find best route for this departure time
+                            weight = "travel_time" if locs['route_type'] == "fastest" else "length"
+                            path_nodes = nx.shortest_path(G, start_node, end_node, weight=weight)
+                            
+                            # Convert to edges
+                            test_edges = []
+                            for u, v in zip(path_nodes[:-1], path_nodes[1:]):
+                                edge_data = G.get_edge_data(u, v)
+                                if edge_data:
+                                    key = list(edge_data.keys())[0]
+                                    test_edges.append((u, v, key))
+                            
+                            # Compute travel time for this optimal route at this hour
+                            _, test_cong_t, _ = compute_travel_times_from_edges(test_edges, test_hour)
+                            
+                            # Store in cache
+                            st.session_state.hourly_route_cache[cache_key] = test_cong_t
+                        except:
+                            continue
+                    
+                    departure_options.append({
+                        "hour": test_hour,
+                        "time": test_cong_t,
+                        "diff": test_cong_t - selected_route['cong_t']
+                    })
+                
+                # Restore graph to current hour
+                prepare_graph_with_travel_times(current_hour)
+
+                if departure_options:
+                    # Find best and worst times
+                    best = min(departure_options, key=lambda x: x["time"])
+                    worst = max(departure_options, key=lambda x: x["time"])
+                    
+                    # Create a simple bar chart using markdown
+                    max_time = worst["time"]
+                    min_time = best["time"]
+                    time_range = max_time - min_time if max_time != min_time else 1
+                    
+                    for opt in departure_options:
+                        # Calculate bar width (normalized)
+                        bar_pct = ((opt["time"] - min_time) / time_range) * 100 if time_range > 0 else 50
+                        bar_pct = max(10, min(100, 30 + bar_pct * 0.7))  # Scale for visibility
+                        
+                        # Label - show offset from now
+                        if opt["hour"] == 0:
+                            label = "Now"
+                        else:
+                            label = f"+{opt['hour']}h"
+                        
+                        # Mark selected departure time
+                        is_selected_time = (opt["hour"] == current_hour)
+                        
+                        # Color based on relative time
+                        if opt["hour"] == best["hour"]:
+                            color = "#22c55e"  # Green
+                            suffix = " 🏆"
+                        elif opt["hour"] == worst["hour"] and len(departure_options) > 2:
+                            color = "#ef4444"  # Red
+                            suffix = ""
+                        else:
+                            color = "#3b82f6"  # Blue
+                            suffix = ""
+                        
+                        # Add marker for currently selected time
+                        if is_selected_time:
+                            suffix += " ← selected"
+                        
+                        # Render bar
+                        st.markdown(
+                            f"**{label}**: {opt['time']:.0f} min{suffix}"
+                        )
+                        st.markdown(
+                            f'<div style="background: {color}; height: 8px; width: {bar_pct}%; '
+                            f'border-radius: 4px; margin-bottom: 8px;"></div>',
+                            unsafe_allow_html=True
+                        )
+                    
+                    st.divider()
+                    
+                    # Recommendation
+                    if best["hour"] != current_hour and (selected_route['cong_t'] - best["time"]) > 1:
+                        savings = selected_route['cong_t'] - best["time"]
+                        if best["hour"] == 0:
+                            st.success(f"💡 **Leave now** to save **{savings:.0f} min**")
+                        else:
+                            st.success(f"💡 **Leave in +{best['hour']}h** to save **{savings:.0f} min**")
+                    elif best["hour"] == current_hour:
+                        st.success("✅ **Your selected time is optimal!**")
+                    else:
+                        st.info("ℹ️ Travel time is similar across hours")
     else:
         # No routes computed yet
         st.subheader("🗺️ Route Map")

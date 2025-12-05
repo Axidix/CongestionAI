@@ -40,7 +40,7 @@ def scale_features(train, val, test, norm_cols, latlon_cols=["lon", "lat"]):
 from typing import Tuple, Any
 import os
 from src.utils.configs import DataConfig
-from src.utils.crafted_features import SpikeFeatureConfig, add_spike_features, add_lags_and_drop
+from src.utils.crafted_features import SpikeFeatureConfig, add_spike_features, add_lags_and_drop, make_lags
 from src.utils.memmap_sequences import MemmapSequenceBuilder
 
 
@@ -62,7 +62,7 @@ def prepare_data_memmap(
     print("="*70)
     
     # Load base data
-    print(f"\n[1/6] Loading data from {data_cfg.file_path}...")
+    print(f"\n[1/7] Loading data from {data_cfg.file_path}...")
     df_base = pd.read_csv(data_cfg.file_path)
     df_base["timestamp"] = pd.to_datetime(df_base["timestamp"])
     df_base["orig_idx"] = df_base.index
@@ -81,14 +81,14 @@ def prepare_data_memmap(
     df_small = df_small.sort_values(["detector_id", "timestamp"])
     
     # Season encoding
-    print("\n[2/6] Adding season encoding...")
+    print("\n[2/7] Adding season encoding...")
     df_small.loc[(df_small["month"] <= 2) | (df_small["month"] == 12), "season"] = 0
     df_small.loc[(df_small["month"] > 2) & (df_small["month"] <= 5), "season"] = 1
     df_small.loc[(df_small["month"] > 5) & (df_small["month"] <= 8), "season"] = 2
     df_small.loc[(df_small["month"] > 8) & (df_small["month"] <= 11), "season"] = 3
     
     # Spike features
-    print("\n[3/6] Adding spike features...")
+    print("\n[3/7] Adding spike features...")
     spike_config = SpikeFeatureConfig(
         enable_deltas=True,
         enable_abs_deltas=False,
@@ -106,8 +106,20 @@ def prepare_data_memmap(
     feature_cols_norm = list(data_cfg.feature_cols_norm) + spike_norm_cols
     print(f"  Spike features: {spike_feature_cols}")
     
+    # Congestion lags (NEW)
+    print("\n[4/7] Adding congestion lags...")
+    congestion_lag_cols = []
+    if data_cfg.congestion_lags is not None and len(data_cfg.congestion_lags) > 0:
+        df_small = make_lags(df_small, "congestion_index", list(data_cfg.congestion_lags))
+        congestion_lag_cols = [f"congestion_index_lag_{lag}h" for lag in data_cfg.congestion_lags]
+        feature_cols = feature_cols + congestion_lag_cols
+        feature_cols_norm = feature_cols_norm + congestion_lag_cols
+        print(f"  Congestion lag features: {congestion_lag_cols}")
+    else:
+        print(f"  No congestion lags configured")
+    
     # Detector encoding
-    print("\n[4/6] Encoding detectors...")
+    print("\n[5/7] Encoding detectors...")
     df_small, det2idx = encode_detectors(df_small)
     num_detectors = len(det2idx)
     print(f"  Encoded {num_detectors} detectors")
@@ -120,7 +132,7 @@ def prepare_data_memmap(
             + [f"visibility_lag_{lag}h" for lag in weather_lags]
     
     # Split by years
-    print("\n[5/6] Splitting data...")
+    print("\n[6/7] Splitting data...")
     years_split = [list(data_cfg.years_train), list(data_cfg.years_val), list(data_cfg.years_test)]
     
     train = df_small[df_small["timestamp"].dt.year.isin(years_split[0])].copy()
@@ -148,12 +160,12 @@ def prepare_data_memmap(
         if test is not None:
             test = add_lags_and_drop(test, weather_lags)
     
-    # Drop NaNs from spike features
-    spike_cols_in_df = [c for c in spike_feature_cols if c in train.columns]
-    train = train.dropna(subset=spike_cols_in_df)
-    val = val.dropna(subset=spike_cols_in_df)
+    # Drop NaNs from spike features and congestion lags
+    drop_na_cols = [c for c in spike_feature_cols + congestion_lag_cols if c in train.columns]
+    train = train.dropna(subset=drop_na_cols)
+    val = val.dropna(subset=drop_na_cols)
     if test is not None:
-        test = test.dropna(subset=spike_cols_in_df)
+        test = test.dropna(subset=drop_na_cols)
     
     # Keep only needed columns
     keep_cols = feature_cols + ["timestamp", "detector_id", "det_index"]
@@ -165,7 +177,7 @@ def prepare_data_memmap(
         test = test[keep_cols]
     
     # Create memmap sequences
-    print("\n[6/6] Creating MEMMAP sequences...")
+    print("\n[7/7] Creating MEMMAP sequences...")
     history_offsets = list(range(data_cfg.history_hours))
     
     os.makedirs(data_cfg.cache_dir, exist_ok=True)
