@@ -390,12 +390,16 @@ def evaluate_model(
     
     print(f"  Eval samples: {len(eval_df):,}")
     
+    # Get years from actual data
+    eval_years = sorted(eval_df["timestamp"].dt.year.unique().tolist())
+    print(f"  Evaluation years: {eval_years}")
+    
     # Evaluate
     metrics = evaluate_and_plot_block(
         eval_df,
         horizon=forecast_horizon,
-        years=[2019],
-        plot_years=[2019],
+        years=eval_years,  # Use actual years in data
+        plot_years=eval_years,
         filename=exp_name,
         dir=output_dir,
         max_blocks=20,

@@ -1,0 +1,362 @@
+"""
+Backend Service
+===============
+
+Main orchestration layer that coordinates data fetching, inference, and caching.
+
+This is the primary interface for the GUI and scheduler.
+
+Functions:
+----------
+- refresh_forecast() -> bool
+    Main function called hourly:
+    1. Fetch latest weather
+    2. Fetch latest traffic
+    3. Build features for all detectors
+    4. Run model inference
+    5. Save forecast.json for GUI
+    Returns True if successful, False on error.
+
+- get_current_forecast() -> dict
+    Load and return the latest cached forecast.
+
+- get_forecast_for_hour(hour_offset: int) -> dict
+    Get forecast for specific hour ahead (0-23).
+
+- get_forecast_age() -> timedelta
+    How old is the current cached forecast?
+
+- is_forecast_stale() -> bool
+    Check if forecast needs refresh.
+
+Workflow:
+---------
+    ┌─────────────────────────────────────────────────────────┐
+    │  refresh_forecast()                                      │
+    │                                                          │
+    │  1. weather_df = fetch_weather_history(72)              │
+    │  2. traffic_df = fetch_traffic_history(336)             │
+    │  3. features = build_features_all_detectors(...)        │
+    │  4. model = load_model() [cached singleton]             │
+    │  5. predictions = predict_all_detectors(model, ...)     │
+    │  6. output = postprocess_predictions(predictions)       │
+    │  7. save_json(output, "gui/data/forecast.json")         │
+    │  8. log success, return True                            │
+    └─────────────────────────────────────────────────────────┘
+
+Error Handling:
+---------------
+- If weather fetch fails: use cached weather, log warning
+- If traffic fetch fails: use historical fallback, log warning  
+- If model fails: keep old forecast, log error, return False
+- Never crash the service
+
+Logging:
+--------
+- Log each refresh: timestamp, duration, success/failure
+- Log data quality: missing detectors, stale data warnings
+- Save logs to backend/logs/
+
+Usage:
+------
+    # Called by scheduler every hour
+    from backend.service import refresh_forecast
+    success = refresh_forecast()
+    
+    # Called by GUI
+    from backend.service import get_current_forecast
+    forecast = get_current_forecast()
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, Optional
+
+logger = logging.getLogger(__name__)
+
+# Import config
+from backend import config
+from backend.data.traffic import fetch_traffic_history, get_traffic_at_lag, fetch_and_accumulate
+from backend.data.weather import fetch_weather_history
+from backend.data.features import prepare_inference_batch, EXPECTED_NUM_FEATURES
+from backend.model.loader import load_model
+from backend.model.predictor import predict_batch, postprocess_predictions, get_forecast_summary
+
+
+# =============================================================================
+# STARTUP VALIDATION
+# =============================================================================
+
+def validate_startup() -> None:
+    """
+    Validate that all required files exist before running.
+    Raises FileNotFoundError if critical files are missing.
+    """
+    critical_files = [
+        (config.MAPPING_PATH, "Detector mapping (run mapping script first)"),
+        (config.MODEL_CHECKPOINT_PATH, "Model checkpoint (run train_final_model.py first)"),
+    ]
+    
+    # Scalers are recommended but not strictly required (will use no scaling)
+    recommended_files = [
+        (config.STD_SCALER_PATH, "StandardScaler"),
+        (config.MM_SCALER_PATH, "MinMaxScaler"),
+        (config.DET2IDX_PATH, "Detector index mapping"),
+    ]
+    
+    missing_critical = []
+    missing_recommended = []
+    
+    for path, desc in critical_files:
+        if not path.exists():
+            missing_critical.append(f"  - {path} ({desc})")
+    
+    for path, desc in recommended_files:
+        if not path.exists():
+            missing_recommended.append(f"  - {path} ({desc})")
+    
+    if missing_critical:
+        raise FileNotFoundError(
+            f"Missing critical files:\n" + "\n".join(missing_critical) +
+            "\n\nCannot start service without these files."
+        )
+    
+    if missing_recommended:
+        logger.warning(
+            "Missing recommended files (service may work with reduced accuracy):\n" +
+            "\n".join(missing_recommended)
+        )
+    
+    logger.info("Startup validation passed")
+
+
+# =============================================================================
+# GLOBAL CACHE
+# =============================================================================
+
+_model = None
+_startup_validated = False
+
+
+def _get_model():
+    """Get model singleton (lazy load)."""
+    global _model
+    if _model is None:
+        _model = load_model(
+            config.MODEL_CHECKPOINT_PATH,
+            device=config.DEVICE,
+        )
+    return _model
+
+
+# =============================================================================
+# CORE FUNCTIONS
+# =============================================================================
+
+def refresh_forecast() -> bool:
+    """
+    Main refresh function. Called hourly by scheduler.
+    
+    Workflow:
+    1. Accumulate latest traffic data to cache
+    2. Fetch weather history
+    3. Build features for all detectors
+    4. Run model inference
+    5. Save forecast.json for GUI
+    
+    Returns:
+        True if successful, False on error
+    """
+    global _startup_validated
+    
+    # Validate once on first call
+    if not _startup_validated:
+        validate_startup()
+        _startup_validated = True
+    
+    start_time = time.time()
+    logger.info("="*50)
+    logger.info(f"Starting forecast refresh at {datetime.utcnow()}")
+    
+    try:
+        # Step 1: Accumulate traffic (fetch current + merge with cache)
+        logger.info("[1/5] Accumulating traffic data...")
+        traffic_df = fetch_and_accumulate()
+        if traffic_df.empty:
+            raise ValueError("No traffic data available")
+        logger.info(f"  Traffic: {len(traffic_df)} rows, {traffic_df['detector_id'].nunique()} detectors")
+        
+        # Step 2: Fetch weather
+        logger.info("[2/5] Fetching weather history...")
+        weather_df = fetch_weather_history(hours=100)
+        if weather_df.empty:
+            raise ValueError("No weather data available")
+        logger.info(f"  Weather: {len(weather_df)} rows")
+        
+        # Step 3: Get 168h lag for weekly feature
+        logger.info("[3/5] Getting 168h lag snapshot...")
+        lag_168h_df = get_traffic_at_lag(lag_hours=168)
+        if lag_168h_df.empty:
+            logger.warning("  No 168h lag data available, using fallback")
+            lag_168h_df = None
+        else:
+            logger.info(f"  168h lag: {len(lag_168h_df)} detectors")
+        
+        # Step 4: Build features
+        logger.info("[4/5] Building features...")
+        X, det_indices, detector_ids = prepare_inference_batch(
+            traffic_history=traffic_df,
+            weather_history=weather_df,
+            traffic_lag_168h=lag_168h_df,
+        )
+        
+        if len(X) == 0:
+            raise ValueError("No valid detector features built")
+        logger.info(f"  Features: {X.shape} for {len(detector_ids)} detectors")
+        
+        # Step 5: Run inference
+        logger.info("[5/5] Running model inference...")
+        model = _get_model()
+        predictions = predict_batch(model, X, det_indices, device=config.DEVICE)
+        logger.info(f"  Predictions: {predictions.shape}")
+        
+        # Postprocess and save
+        output = postprocess_predictions(
+            predictions=predictions,
+            detector_ids=detector_ids,
+            timestamp=datetime.utcnow(),
+        )
+        
+        # Add summary stats
+        output["summary"] = get_forecast_summary(predictions, detector_ids)
+        
+        # Save to JSON
+        save_forecast(output)
+        
+        duration = time.time() - start_time
+        logger.info(f"Forecast refresh completed in {duration:.1f}s")
+        logger.info("="*50)
+        
+        return True
+        
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"Forecast refresh FAILED after {duration:.1f}s: {e}", exc_info=True)
+        return False
+
+
+def save_forecast(data: Dict, path: Optional[Path] = None) -> None:
+    """Save forecast to JSON file."""
+    path = path or config.FORECAST_OUTPUT_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    
+    logger.info(f"Saved forecast to {path}")
+
+
+def get_current_forecast() -> Dict:
+    """
+    Load and return the latest cached forecast.
+    
+    Returns empty dict if no forecast available.
+    """
+    path = config.FORECAST_OUTPUT_PATH
+    
+    if not path.exists():
+        logger.warning(f"No forecast file at {path}")
+        return {}
+    
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load forecast: {e}")
+        return {}
+
+
+def get_forecast_age() -> Optional[timedelta]:
+    """
+    Get age of current forecast.
+    
+    Returns None if no forecast available.
+    """
+    forecast = get_current_forecast()
+    if not forecast:
+        return None
+    
+    try:
+        ts = datetime.strptime(forecast["generated_at"], "%Y-%m-%dT%H:%M:%SZ")
+        return datetime.utcnow() - ts
+    except (KeyError, ValueError):
+        return None
+
+
+def is_forecast_stale(max_age_minutes: int = 90) -> bool:
+    """
+    Check if forecast needs refresh.
+    
+    Args:
+        max_age_minutes: Maximum acceptable age (default 90 = 1.5 hours)
+    
+    Returns:
+        True if forecast is stale or missing
+    """
+    age = get_forecast_age()
+    
+    if age is None:
+        return True
+    
+    return age > timedelta(minutes=max_age_minutes)
+
+
+def get_forecast_for_detector(detector_id: str) -> Optional[Dict]:
+    """
+    Get forecast for a specific detector.
+    
+    Returns:
+        dict with 24-hour forecast, or None if not found
+    """
+    forecast = get_current_forecast()
+    
+    if not forecast or "data" not in forecast:
+        return None
+    
+    if detector_id not in forecast["data"]:
+        return None
+    
+    return {
+        "detector_id": detector_id,
+        "timestamp": forecast.get("timestamp"),
+        "predictions": forecast["data"][detector_id],
+    }
+
+
+def get_forecast_for_hour(hour_offset: int = 0) -> Dict:
+    """
+    Get all detector predictions for a specific hour.
+    
+    Args:
+        hour_offset: Hours ahead (0 = now, 1 = +1h, ..., 23 = +23h)
+    
+    Returns:
+        dict mapping detector_id -> congestion_index for that hour
+    """
+    forecast = get_current_forecast()
+    
+    if not forecast or "data" not in forecast:
+        return {}
+    
+    hour_offset = max(0, min(23, hour_offset))
+    
+    return {
+        det_id: preds[hour_offset]
+        for det_id, preds in forecast["data"].items()
+        if len(preds) > hour_offset
+    }

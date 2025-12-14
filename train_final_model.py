@@ -13,6 +13,7 @@ Run with:
 import os
 import sys
 import torch
+import joblib
 from datetime import datetime
 
 # Add project root to path
@@ -41,7 +42,7 @@ data_cfg = DataConfig(
     volatility_threshold=0.04,
     # Include ALL years for training (2019 was validation before)
     years_train=(2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024),
-    years_val=(2049,),  # Use 2024 as validation (most recent; useless anyway)
+    years_val=(2024,),  # Use 2024 as validation (most recent)
     years_test=(),
     cache_dir="prepared_data/memmap_cache_final",
     # Best feature from param search
@@ -112,6 +113,25 @@ def main():
      X_val, Y_val, idx_val, det_val,
      train_df, val_df, std_scaler, mm_scaler,
      memmap_builder, num_detectors) = prepare_data_memmap(data_cfg)
+    
+    # Save scalers for inference (backend/scalers/)
+    scaler_dir = os.path.join(PROJECT_ROOT, "backend", "scalers")
+    os.makedirs(scaler_dir, exist_ok=True)
+    
+    joblib.dump(std_scaler, os.path.join(scaler_dir, "std_scaler.joblib"))
+    joblib.dump(mm_scaler, os.path.join(scaler_dir, "mm_scaler.joblib"))
+    print(f"  Saved scalers to {scaler_dir}")
+    
+    # Save detector mapping (det2idx) - need to extract from train_df
+    if "det_index" in train_df.columns:
+        det2idx = dict(zip(
+            train_df["detector_id"].unique(),
+            train_df.groupby("detector_id")["det_index"].first().values
+        ))
+        # Sort by index to ensure correct mapping
+        det2idx = {k: int(v) for k, v in sorted(det2idx.items(), key=lambda x: x[1])}
+        joblib.dump(det2idx, os.path.join(scaler_dir, "det2idx.joblib"))
+        print(f"  Saved det2idx mapping ({len(det2idx)} detectors)")
     
     print(f"\nData shapes:")
     print(f"  X_train: {X_train.shape}")

@@ -534,12 +534,23 @@ def build_map_layers(routes_data: List[Dict], selected_idx: int) -> List[pdk.Lay
 # Route selection panel (replaces the CSS + render_route_card)
 # ------------------------------------------------------
 
+def get_route_label(index: int, is_best: bool) -> str:
+    """Get semantic label for route."""
+    if is_best:
+        return "Best (fastest)"
+    else:
+        # Alternative A, B, C...
+        alt_letter = chr(ord('A') + index - 1)  # 1->A, 2->B, etc.
+        return f"Alternative {alt_letter}"
+
+
 def render_route_selector(routes: List[Dict], selected_idx: int) -> None:
     """Render route selection cards using Streamlit components."""
     
     for i, rd in enumerate(routes):
         is_selected = (rd["idx"] == selected_idx)
         is_best = (i == 0)
+        route_label = get_route_label(i, is_best)
         
         # Determine styling
         if is_selected:
@@ -549,7 +560,7 @@ def render_route_selector(routes: List[Dict], selected_idx: int) -> None:
                 with cols[0]:
                     st.markdown("🌈")  # Gradient indicator
                 with cols[1]:
-                    st.markdown(f"**Route {i + 1}**")
+                    st.markdown(f"**{route_label}**")
                 with cols[2]:
                     st.markdown("✅ **SELECTED**")  # Use markdown instead of st.success
                 
@@ -576,7 +587,7 @@ def render_route_selector(routes: List[Dict], selected_idx: int) -> None:
                 with cols[0]:
                     st.markdown(color_emoji)
                 with cols[1]:
-                    st.markdown(f"**Route {i + 1}**")
+                    st.markdown(f"**{route_label}**")
                 with cols[2]:
                     if is_best:
                         st.markdown("⭐ **BEST**")
@@ -613,7 +624,7 @@ with left_col:
             else:
                 st.caption(f"⚠️ _{result}_")
     
-    dest_text = st.text_input("Destination", placeholder="e.g., Brandenburg Gate, Berlin")
+    dest_text = st.text_input("Destination", placeholder="e.g., Europaplatz, Berlin")
     
     # Show resolved destination address preview
     if dest_text.strip():
@@ -647,6 +658,7 @@ with left_col:
     if st.session_state.routes_data is not None:
         st.divider()
         st.subheader("🛤️ Choose Route")
+        st.caption("_In dense urban areas, alternative routes may partially overlap due to road network constraints._")
         render_route_selector(st.session_state.routes_data, st.session_state.selected_route_idx)
     
     st.divider()
@@ -667,6 +679,8 @@ with left_col:
         st.markdown("🟡 Medium")
     with legend_cols[2]:
         st.markdown("🔴 High")
+    
+    st.caption("_ℹ️ Congestion = predicted traffic slowdown vs. free-flow speed._")
 
 # ------------------------------------------------------
 # Main logic - Compute on button OR on toggle change
@@ -729,7 +743,27 @@ with right_col:
         st.success(f"📍 **From:** {locs['start_result']}")
         st.success(f"📍 **To:** {locs['dest_result']}")
         
-        # Selected route summary
+        # Map FIRST (above travel summary)
+        route_label = "⚡ Fastest Routes" if locs['route_type'] == "fastest" else "🛣️ Shortest Routes"
+        st.subheader(f"🗺️ Route Map — {route_label}")
+        
+        # Build layers
+        layers = build_map_layers(routes, selected_idx)
+        view = compute_view_state(locs['lat1'], locs['lon1'], locs['lat2'], locs['lon2'])
+        
+        st.pydeck_chart(
+            pdk.Deck(
+                layers=layers,
+                initial_view_state=view,
+                map_style="mapbox://styles/mapbox/light-v11",
+                api_keys={"mapbox": st.secrets["MAPBOX_TOKEN"]},
+                tooltip={"text": "Congestion: {congestion}"}
+            )
+        )
+        
+        st.caption(f"_Showing {len(routes)} routes • Departure: +{locs['hour']}h from now_")
+        
+        # Selected route summary (below map)
         st.subheader(f"📊 Route {selected_idx + 1} — Travel Summary")
         
         metric_cols = st.columns(4)
@@ -764,26 +798,6 @@ with right_col:
                             st.markdown(f"_{rd['cong_t']:.1f} min (+{diff:.1f})_")
                         else:
                             st.markdown(f"_{rd['cong_t']:.1f} min ({diff:.1f})_")
-        
-        # Map
-        route_label = "⚡ Fastest Routes" if locs['route_type'] == "fastest" else "🛣️ Shortest Routes"
-        st.subheader(f"🗺️ Route Map — {route_label}")
-        
-        # Build layers
-        layers = build_map_layers(routes, selected_idx)
-        view = compute_view_state(locs['lat1'], locs['lon1'], locs['lat2'], locs['lon2'])
-        
-        st.pydeck_chart(
-            pdk.Deck(
-                layers=layers,
-                initial_view_state=view,
-                map_style="mapbox://styles/mapbox/light-v11",
-                api_keys={"mapbox": st.secrets["MAPBOX_TOKEN"]},
-                tooltip={"text": "Congestion: {congestion}"}
-            )
-        )
-        
-        st.caption(f"_Showing {len(routes)} routes • Departure: +{locs['hour']}h from now_")
         
         # Two expanders side by side using columns
         exp_col1, exp_col2 = st.columns(2)
