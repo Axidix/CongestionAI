@@ -77,6 +77,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 # Import config
@@ -225,6 +227,9 @@ def refresh_forecast() -> bool:
         predictions = predict_batch(model, X, det_indices, device=config.DEVICE)
         logger.info(f"  Predictions: {predictions.shape}")
         
+        # Clip predictions to valid range [0, 1] BEFORE summary and postprocessing
+        predictions = np.clip(predictions, 0.0, 1.0)
+        
         # Postprocess and save
         output = postprocess_predictions(
             predictions=predictions,
@@ -232,7 +237,7 @@ def refresh_forecast() -> bool:
             timestamp=datetime.utcnow(),
         )
         
-        # Add summary stats
+        # Add summary stats (now on clipped predictions)
         output["summary"] = get_forecast_summary(predictions, detector_ids)
         
         # Add weather forecast for GUI

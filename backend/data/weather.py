@@ -349,14 +349,22 @@ def format_weather_for_gui(weather_df: pd.DataFrame) -> dict:
     current_idx = df["_diff"].idxmin()
     current_row = df.loc[current_idx]
     
-    # Build current weather
+    # Build current weather (handle NaN values)
+    def safe_float(val, default=0):
+        """Convert to float, returning default if NaN or invalid."""
+        try:
+            f = float(val)
+            return default if pd.isna(f) else f
+        except (TypeError, ValueError):
+            return default
+    
     current = {
-        "temp": round(float(current_row.get("temperature", 10)), 1),
+        "temp": round(safe_float(current_row.get("temperature", 10), 10), 1),
         "description": str(current_row.get("condition", "unknown")),
-        "wind_speed": round(float(current_row.get("wind_speed", 0)), 1) if "wind_speed" in current_row else 0,
-        "precip": round(float(current_row.get("precipitation", 0)), 1),
-        "visibility": round(float(current_row.get("visibility", 10000)), 0),
-        "humidity": round(float(current_row.get("relative_humidity", 50)), 0) if "relative_humidity" in current_row else 50,
+        "wind_speed": round(safe_float(current_row.get("wind_speed", 0), 0), 1),
+        "precip": round(safe_float(current_row.get("precipitation", 0), 0), 1),
+        "visibility": round(safe_float(current_row.get("visibility", 10000), 10000), 0),
+        "humidity": round(safe_float(current_row.get("relative_humidity", 50), 50), 0),
         "icon": str(current_row.get("icon", "cloudy")),
     }
     
@@ -374,9 +382,9 @@ def format_weather_for_gui(weather_df: pd.DataFrame) -> dict:
         if df.loc[closest_idx, "_diff"] <= timedelta(minutes=30):
             hourly.append({
                 "hour": h,
-                "temp": round(float(row.get("temperature", 10)), 1),
-                "precip": round(float(row.get("precipitation", 0)), 2),
-                "visibility": round(float(row.get("visibility", 10000)), 0),
+                "temp": round(safe_float(row.get("temperature", 10), 10), 1),
+                "precip": round(safe_float(row.get("precipitation", 0), 0), 2),
+                "visibility": round(safe_float(row.get("visibility", 10000), 10000), 0),
                 "condition": str(row.get("condition", "unknown")),
                 "icon": str(row.get("icon", "cloudy")),
             })
@@ -384,7 +392,7 @@ def format_weather_for_gui(weather_df: pd.DataFrame) -> dict:
             # No data for this hour, use interpolated/default
             hourly.append({
                 "hour": h,
-                "temp": round(float(current.get("temp", 10)), 1),
+                "temp": round(safe_float(current.get("temp", 10), 10), 1),
                 "precip": 0.0,
                 "visibility": 10000,
                 "condition": "unknown",
