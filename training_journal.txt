@@ -136,5 +136,11 @@ The deeper TCN showed consistent improvements across all metrics. It slightly re
 The 72h-history TCN achieved the lowest validation loss overall but degraded spike metrics. The model became smoother and less reactive, which is undesirable for capturing sudden congestion events.
 Overall, the deeper TCN on 48h history shows the best balance between accuracy and reactivity. This will be used as the base for the final long training run.
 
+Ran a batch of ~20 TCN experiments (8 epochs each) on the scaled setup to choose the final model direction. Standard architecture/optimizer/dropout/embedding changes did not improve results consistently. 
+The main improvement came from adding explicit congestion lags capturing weekly patterns. Among comparable loss settings (spike_weight=3, threshold=0.15), lag features at 168h and multi-scale (48h + 168h) achieved the best spike-F1 (~0.182–0.184) and the lowest validation losses within that group (~0.200–0.203). 
+A run with spike_weight=2 produced a much lower val loss but underperformed on spike metrics, confirming that loss values are not comparable across different loss definitions. 
+Extensive architectural and optimizer tuning yielded marginal gains, while introducing explicit multiscale temporal lag features (daily + weekly) consistently improved both forecasting accuracy and spike detection, indicating that the model was primarily feature-limited rather than capacity-limited.
+We will thus keep the best performing model from this search, TCN + multiscale congestion lags (48h + 168h) called "EXP_lags_multiscale_48_168" for deployment.
 
+Small training on the full data without any validation year for the kept config to obtain deployable model.
 
