@@ -317,3 +317,103 @@ def get_weather_at_lag(lag_hours: int = LAG_HOUR) -> dict:
         df = fetch_weather_history(hours=lag_hours + CACHE_BUFFER_HOURS)
     
     return get_weather_at_timestamp(target, df=df)
+
+
+def format_weather_for_gui(weather_df: pd.DataFrame) -> dict:
+    """
+    Format weather data for GUI display.
+    
+    Takes the weather DataFrame (with history + forecasts) and extracts:
+    - Current weather conditions
+    - 24-hour forecast (hourly)
+    
+    Returns:
+        dict matching GUI's expected weather.json format:
+        {
+            "current": {"temp": 8.5, "description": "cloudy", "precip": 0.0, ...},
+            "hourly": [{"hour": 0, "temp": 8.5, "precip": 0.0}, ...]
+        }
+    """
+    if weather_df.empty:
+        return _default_weather_for_gui()
+    
+    now = pd.Timestamp.utcnow()
+    
+    # Ensure timestamps are UTC
+    df = weather_df.copy()
+    if df["timestamp"].dt.tz is None:
+        df["timestamp"] = df["timestamp"].dt.tz_localize("UTC")
+    
+    # Find current hour (closest to now)
+    df["_diff"] = (df["timestamp"] - now).abs()
+    current_idx = df["_diff"].idxmin()
+    current_row = df.loc[current_idx]
+    
+    # Build current weather
+    current = {
+        "temp": round(float(current_row.get("temperature", 10)), 1),
+        "description": str(current_row.get("condition", "unknown")),
+        "wind_speed": round(float(current_row.get("wind_speed", 0)), 1) if "wind_speed" in current_row else 0,
+        "precip": round(float(current_row.get("precipitation", 0)), 1),
+        "visibility": round(float(current_row.get("visibility", 10000)), 0),
+        "humidity": round(float(current_row.get("relative_humidity", 50)), 0) if "relative_humidity" in current_row else 50,
+        "icon": str(current_row.get("icon", "cloudy")),
+    }
+    
+    # Build hourly forecast (next 25 hours: 0 = now, 24 = 24h ahead)
+    hourly = []
+    for h in range(25):
+        target_ts = now + timedelta(hours=h)
+        
+        # Find closest timestamp to this hour
+        df["_diff"] = (df["timestamp"] - target_ts).abs()
+        closest_idx = df["_diff"].idxmin()
+        row = df.loc[closest_idx]
+        
+        # Only use if within 30 minutes of target
+        if df.loc[closest_idx, "_diff"] <= timedelta(minutes=30):
+            hourly.append({
+                "hour": h,
+                "temp": round(float(row.get("temperature", 10)), 1),
+                "precip": round(float(row.get("precipitation", 0)), 2),
+                "visibility": round(float(row.get("visibility", 10000)), 0),
+                "condition": str(row.get("condition", "unknown")),
+                "icon": str(row.get("icon", "cloudy")),
+            })
+        else:
+            # No data for this hour, use interpolated/default
+            hourly.append({
+                "hour": h,
+                "temp": round(float(current.get("temp", 10)), 1),
+                "precip": 0.0,
+                "visibility": 10000,
+                "condition": "unknown",
+                "icon": "cloudy",
+            })
+    
+    return {
+        "current": current,
+        "hourly": hourly,
+        "updated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+def _default_weather_for_gui() -> dict:
+    """Return default weather structure when no data available."""
+    now = datetime.utcnow()
+    return {
+        "current": {
+            "temp": 10.0,
+            "description": "unavailable",
+            "wind_speed": 0,
+            "precip": 0.0,
+            "visibility": 10000,
+            "humidity": 50,
+            "icon": "cloudy",
+        },
+        "hourly": [
+            {"hour": h, "temp": 10.0, "precip": 0.0, "visibility": 10000, "condition": "unavailable", "icon": "cloudy"}
+            for h in range(25)
+        ],
+        "updated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }

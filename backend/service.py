@@ -82,7 +82,7 @@ logger = logging.getLogger(__name__)
 # Import config
 from backend import config
 from backend.data.traffic import fetch_traffic_history, get_traffic_at_lag, fetch_and_accumulate
-from backend.data.weather import fetch_weather_history
+from backend.data.weather import fetch_weather_history, format_weather_for_gui
 from backend.data.features import prepare_inference_batch, EXPECTED_NUM_FEATURES
 from backend.model.loader import load_model
 from backend.model.predictor import predict_batch, postprocess_predictions, get_forecast_summary
@@ -234,6 +234,9 @@ def refresh_forecast() -> bool:
         
         # Add summary stats
         output["summary"] = get_forecast_summary(predictions, detector_ids)
+        
+        # Add weather forecast for GUI
+        output["weather"] = format_weather_for_gui(weather_df)
         
         # Save to JSON
         save_forecast(output)

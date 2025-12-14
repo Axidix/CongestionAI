@@ -12,7 +12,7 @@ st.set_page_config(page_title="CongestionAI", layout="wide")
 st.title("CongestionAI — Live & Forecast Dashboard")
 
 # ---------------------------------------------
-# Load data (roads, forecast, weather)
+# Load data (roads, forecast with weather)
 # ---------------------------------------------
 @st.cache_data
 def load_roads():
@@ -27,14 +27,18 @@ def load_forecast():
     with open("data/forecast.json", "r") as f:
         return json.load(f)
 
-@st.cache_data
-def load_weather():
-    with open("data/weather.json", "r") as f:
-        return json.load(f)
-
 roads = load_roads()
 forecast = load_forecast()
-weather = load_weather()
+
+# Extract weather from forecast (backend now includes it)
+if "weather" in forecast:
+    weather = forecast["weather"]
+else:
+    # Fallback for old format or missing weather
+    weather = {
+        "current": {"temp": 10, "precip": 0, "description": "unavailable"},
+        "hourly": [{"hour": h, "temp": 10, "precip": 0} for h in range(25)]
+    }
 
 # ---------------------------------------------
 # Create placeholder for weather (will fill later)
@@ -54,12 +58,12 @@ hourly_df = pd.DataFrame(weather["hourly"])
 if hour == 0:
     selected_temp = weather["current"]["temp"]
     selected_precip = weather["current"]["precip"]
-    selected_desc = weather["current"]["description"]
+    selected_desc = weather["current"].get("description", "Current conditions")
 else:
-    selected = hourly_df.loc[hour]
+    selected = hourly_df[hourly_df["hour"] == hour].iloc[0] if hour in hourly_df["hour"].values else hourly_df.iloc[hour]
     selected_temp = selected["temp"]
     selected_precip = selected["precip"]
-    selected_desc = f"Forecast (hour +{hour})"
+    selected_desc = selected.get("condition", f"Forecast (hour +{hour})")
 
 with weather_placeholder.expander("🌤️ Weather at selected hour", expanded=True):
     if hour == 0:
@@ -70,7 +74,11 @@ with weather_placeholder.expander("🌤️ Weather at selected hour", expanded=T
     col1, col2 = st.columns(2)
     col1.metric("Temperature", f"{selected_temp} °C")
     col2.metric("Precipitation", f"{selected_precip} mm")
-    st.markdown(f"**Description:** {selected_desc}")
+    st.markdown(f"**Conditions:** {selected_desc}")
+    
+    # Show forecast age if available
+    if "updated_at" in weather:
+        st.caption(f"Weather updated: {weather['updated_at']}")
 
     st.write("### Full 24h Forecast")
     st.line_chart(hourly_df.set_index("hour")[["temp", "precip"]])
