@@ -1,5 +1,6 @@
 import streamlit as st
 import json
+import gzip
 import pandas as pd
 import geopandas as gpd
 import pydeck as pdk
@@ -23,10 +24,22 @@ st.title("CongestionAI — Live & Forecast Dashboard")
 # ---------------------------------------------
 @st.cache_data
 def load_roads():
-    gdf = gpd.read_file("data/berlin_roads.geojson")
+    """Load roads from compressed or uncompressed file."""
+    gz_path = Path("data/berlin_roads.geojson.gz")
+    raw_path = Path("data/berlin_roads.geojson")
+    
+    if gz_path.exists():
+        with gzip.open(gz_path, 'rt') as f:
+            gdf = gpd.read_file(f)
+    elif raw_path.exists():
+        gdf = gpd.read_file(raw_path)
+    else:
+        st.error("❌ berlin_roads.geojson not found!")
+        return gpd.GeoDataFrame()
+    
     if "road_id" not in gdf.columns:
-        print("road_id not found! exiting.")
-        exit(1)
+        st.error("road_id column not found!")
+        return gpd.GeoDataFrame()
     return gdf
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes, then refetch

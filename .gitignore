@@ -7,7 +7,14 @@ questions.txt
 venv/
 
 gui/doc.txt
-gui/data
+# Exclude uncompressed large files, but include compressed versions
+gui/data/berlin_roads.geojson
+gui/data/berlin_drive.graphml
+gui/data/forecast.json
+gui/data/weather.json
+gui/data/*.json
+# Include the compressed files (negate ignore)
+!gui/data/*.gz
 
 
 # Byte-compiled / optimized / DLL files

@@ -1,5 +1,6 @@
 import streamlit as st
 import json
+import gzip
 import requests
 import pandas as pd
 import geopandas as gpd
@@ -46,7 +47,25 @@ if "hourly_route_cache" not in st.session_state:
 # ------------------------------------------------------
 @st.cache_resource
 def load_graph_and_edges():
-    G = ox.load_graphml("data/berlin_drive.graphml")
+    """Load graph from compressed or uncompressed file."""
+    gz_path = Path("data/berlin_drive.graphml.gz")
+    raw_path = Path("data/berlin_drive.graphml")
+    
+    if gz_path.exists():
+        # Decompress to temp file (osmnx needs file path)
+        import tempfile
+        with gzip.open(gz_path, 'rb') as f_in:
+            with tempfile.NamedTemporaryFile(suffix='.graphml', delete=False) as f_out:
+                f_out.write(f_in.read())
+                temp_path = f_out.name
+        G = ox.load_graphml(temp_path)
+        Path(temp_path).unlink()  # Clean up
+    elif raw_path.exists():
+        G = ox.load_graphml(raw_path)
+    else:
+        st.error("❌ berlin_drive.graphml not found!")
+        return None, None
+    
     edges = ox.graph_to_gdfs(G, nodes=False, edges=True)
     return G, edges
 
