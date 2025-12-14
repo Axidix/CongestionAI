@@ -93,6 +93,7 @@ def postprocess_predictions(
     detector_ids: List[str],
     timestamp: Optional[datetime] = None,
     forecast_horizon: int = 24,
+    expand_to_roads: bool = True,
 ) -> Dict:
     """
     Format predictions into GUI-expected structure.
@@ -102,6 +103,7 @@ def postprocess_predictions(
         detector_ids: List of detector IDs matching predictions order
         timestamp: Timestamp of prediction (default: now UTC)
         forecast_horizon: Number of hours predicted
+        expand_to_roads: If True, expand detector forecasts to all road segments
     
     Returns:
         dict suitable for JSON serialization:
@@ -110,8 +112,9 @@ def postprocess_predictions(
             "forecast_horizon": 24,
             "generated_at": "2024-12-14T15:01:23Z",
             "num_detectors": 150,
+            "num_roads": 73687,  # if expanded
             "data": {
-                "detector_abc": [0.12, 0.15, ..., 0.20],  # 24 values
+                "road_id": [0.12, 0.15, ..., 0.20],  # 24 values per road
                 ...
             }
         }
@@ -122,17 +125,33 @@ def postprocess_predictions(
     # Clip predictions to valid range [0, 1]
     predictions = np.clip(predictions, 0.0, 1.0)
     
-    # Build data dict
-    data = {}
+    # Build detector-level data dict
+    detector_data = {}
     for i, det_id in enumerate(detector_ids):
         # Round to 4 decimal places for JSON size
-        data[det_id] = [round(float(v), 4) for v in predictions[i]]
+        detector_data[str(det_id)] = [round(float(v), 4) for v in predictions[i]]
+    
+    # Expand to road-level forecasts for GUI
+    if expand_to_roads:
+        try:
+            from backend.data.mapping import expand_detector_forecast_to_roads
+            road_data = expand_detector_forecast_to_roads(detector_data)
+            data = road_data
+            num_roads = len(road_data)
+        except FileNotFoundError as e:
+            logger.warning(f"Road mapping not found, using detector-level output: {e}")
+            data = detector_data
+            num_roads = 0
+    else:
+        data = detector_data
+        num_roads = 0
     
     output = {
         "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "forecast_horizon": forecast_horizon,
         "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "num_detectors": len(detector_ids),
+        "num_roads": num_roads,
         "data": data,
     }
     
