@@ -3,9 +3,15 @@ import json
 import pandas as pd
 import geopandas as gpd
 import pydeck as pdk
+import requests
+from pathlib import Path
 
 
 mapbox_key = st.secrets["MAPBOX_TOKEN"]
+
+# Backend API URL (for Streamlit Cloud deployment)
+# Set this in .streamlit/secrets.toml: BACKEND_API_URL = "http://your-vm-ip:8000"
+BACKEND_API_URL = st.secrets.get("BACKEND_API_URL", None)
 
 st.set_page_config(page_title="CongestionAI", layout="wide")
 
@@ -22,10 +28,33 @@ def load_roads():
         exit(1)
     return gdf
 
-@st.cache_data
+@st.cache_data(ttl=300)  # Cache for 5 minutes, then refetch
 def load_forecast():
-    with open("data/forecast.json", "r") as f:
-        return json.load(f)
+    """
+    Load forecast from backend API (remote) or local file (VM deployment).
+    
+    For Streamlit Cloud: Set BACKEND_API_URL in secrets.toml
+    For local/VM: Falls back to local file if no API URL configured
+    """
+    # Try remote API first (for Streamlit Cloud)
+    if BACKEND_API_URL:
+        try:
+            response = requests.get(f"{BACKEND_API_URL}/forecast", timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            st.warning(f"⚠️ Could not fetch from backend API: {e}")
+            # Fall through to local file
+    
+    # Fallback to local file (VM deployment or development)
+    local_path = Path("data/forecast.json")
+    if local_path.exists():
+        with open(local_path, "r") as f:
+            return json.load(f)
+    
+    # No data available
+    st.error("❌ No forecast data available. Backend may be starting up.")
+    return {"data": {}, "weather": None}
 
 roads = load_roads()
 forecast = load_forecast()

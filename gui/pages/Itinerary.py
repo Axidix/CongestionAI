@@ -7,9 +7,13 @@ import osmnx as ox
 import networkx as nx
 import pydeck as pdk
 from typing import List, Tuple, Dict, Optional, Any
+from pathlib import Path
 
 st.set_page_config(page_title="Itinerary Tool", layout="wide")
 st.title("CongestionAI — Route & Delay Estimator")
+
+# Backend API URL (for Streamlit Cloud deployment)
+BACKEND_API_URL = st.secrets.get("BACKEND_API_URL", None)
 
 # ------------------------------------------------------
 # Route color scheme - only 2 colors needed for alternatives
@@ -48,10 +52,24 @@ def load_graph_and_edges():
 G, edges_gdf = load_graph_and_edges()
 
 
-@st.cache_data
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def load_forecast():
-    with open("data/forecast.json", "r") as f:
-        return json.load(f)
+    """Load forecast from API (Streamlit Cloud) or local file (VM)."""
+    if BACKEND_API_URL:
+        try:
+            response = requests.get(f"{BACKEND_API_URL}/forecast", timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            st.warning(f"⚠️ Could not fetch forecast: {e}")
+    
+    # Fallback to local file
+    local_path = Path("data/forecast.json")
+    if local_path.exists():
+        with open(local_path, "r") as f:
+            return json.load(f)
+    
+    return {"data": {}}
 
 forecast = load_forecast()
 

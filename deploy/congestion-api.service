@@ -1,0 +1,39 @@
+# Systemd service for the Backend API (FastAPI/uvicorn)
+# This serves forecast.json to remote clients (e.g., Streamlit Cloud)
+#
+# Copy to /etc/systemd/system/congestion-api.service
+#
+# Installation:
+#   sudo cp congestion-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable congestion-api
+#   sudo systemctl start congestion-api
+#
+# Check status:
+#   sudo systemctl status congestion-api
+#   journalctl -u congestion-api -f
+#
+# IMPORTANT: Make sure to open port 8000 in your firewall:
+#   Oracle Cloud: Add ingress rule for TCP port 8000
+#   iptables: sudo iptables -I INPUT -p tcp --dport 8000 -j ACCEPT
+
+[Unit]
+Description=CongestionAI Backend API Server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/CongestionAI
+Environment="PATH=/home/ubuntu/CongestionAI/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/ubuntu/CongestionAI/venv/bin/uvicorn backend.api:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=congestion-api
+
+[Install]
+WantedBy=multi-user.target
