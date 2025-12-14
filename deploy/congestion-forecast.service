@@ -1,5 +1,15 @@
 # Systemd service for Oracle Cloud / any Linux VPS
 # Copy to /etc/systemd/system/congestion-forecast.service
+#
+# Installation:
+#   sudo cp congestion-forecast.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable congestion-forecast
+#   sudo systemctl start congestion-forecast
+#
+# Check status:
+#   sudo systemctl status congestion-forecast
+#   journalctl -u congestion-forecast -f
 
 [Unit]
 Description=Berlin Traffic Congestion Forecast Service
@@ -9,8 +19,8 @@ After=network.target
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/CongestionAI
-Environment="PATH=/home/ubuntu/CongestionAI/venv/bin"
-ExecStart=/home/ubuntu/CongestionAI/venv/bin/python -m backend.scheduler
+Environment="PATH=/home/ubuntu/CongestionAI/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/ubuntu/CongestionAI/venv/bin/python -m backend.scheduler --daemon
 Restart=always
 RestartSec=10
 
@@ -19,7 +29,7 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=congestion-forecast
 
-# Resource limits (adjust as needed)
+# Resource limits (adjust as needed for Oracle Free Tier 1GB RAM)
 MemoryMax=900M
 CPUQuota=80%
 
