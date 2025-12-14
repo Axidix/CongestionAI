@@ -254,6 +254,10 @@ def add_congestion_lags(
     
     NOTE: shift(k) gives value from k rows earlier. If data has gaps (missing hours),
     this becomes "k rows ago" not "k hours ago". Ensure data is hourly-aligned.
+    
+    COLD START: When insufficient history exists, we use fallbacks:
+      - 48h lag NaN → use current congestion_index (less accurate but works)
+      - 168h lag NaN → use current congestion_index or provided snapshot
     """
     df = df.copy()
     
@@ -265,9 +269,20 @@ def add_congestion_lags(
     valid_48h = df["congestion_index_lag_48h"].notna().sum()
     total = len(df)
     if valid_48h < total:
-        logger.info(
-            f"48h lag: {valid_48h}/{total} rows have valid values "
-            f"({100*valid_48h/total:.1f}%). First 48 rows per detector will be NaN."
+        missing_pct = 100 * (1 - valid_48h / total)
+        if valid_48h == 0:
+            logger.warning(
+                f"48h lag: NO valid values (cold start). "
+                f"Using current congestion as fallback for all rows."
+            )
+        else:
+            logger.info(
+                f"48h lag: {valid_48h}/{total} rows have valid values "
+                f"({100*valid_48h/total:.1f}%). Missing rows will use fallback."
+            )
+        # COLD START FALLBACK: Fill missing 48h lags with current congestion
+        df["congestion_index_lag_48h"] = df["congestion_index_lag_48h"].fillna(
+            df["congestion_index"]
         )
     
     # 168h lag - use snapshot if provided, otherwise fallback
@@ -279,6 +294,10 @@ def add_congestion_lags(
             ),
             on="detector_id",
             how="left"
+        )
+        # Fill any detectors not in snapshot with current congestion
+        df["congestion_index_lag_168h"] = df["congestion_index_lag_168h"].fillna(
+            df["congestion_index"]
         )
     else:
         # Fallback: use current congestion as proxy (not ideal but prevents NaN)
@@ -351,7 +370,23 @@ def precompute_weather_lags(weather_df: pd.DataFrame, lags: Tuple[int, ...] = WE
         For row at T, shift(-24) gives weather at T+24h (forecast)
         After merge with traffic (T-100h to T), row at T has correct T+24h weather
     """
+    # Handle empty or missing weather data
+    if weather_df is None or weather_df.empty:
+        logger.warning("Empty weather DataFrame - returning empty DataFrame with lag columns")
+        # Create empty DataFrame with expected lag columns
+        lag_cols = []
+        for col in ["temperature", "precipitation", "visibility"]:
+            for lag in lags:
+                lag_cols.append(f"{col}_lag_{lag}h")
+        empty_df = pd.DataFrame(columns=["timestamp"] + lag_cols)
+        return empty_df
+    
     df = weather_df.copy()
+    
+    # Ensure timestamp is datetime
+    if "timestamp" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+    
     df = df.sort_values("timestamp")
     
     # Scale base weather columns FIRST (matching training order)
@@ -576,6 +611,23 @@ def merge_traffic_weather(
     because weather_df includes future forecast rows that traffic_df doesn't have.
     """
     traffic_df = traffic_df.copy()
+    
+    # Handle empty weather - use defaults for all traffic rows
+    if weather_df is None or weather_df.empty:
+        logger.warning("Empty weather DataFrame - using default weather values for all rows")
+        merged = traffic_df.copy()
+        merged["temperature"] = 10.0
+        merged["precipitation"] = 0.0
+        merged["visibility"] = 10000.0
+        merged["is_rain"] = 0
+        merged["is_snow"] = 0
+        merged["is_fog"] = 0
+        # Add empty lag columns (will be filled below with defaults)
+        for col in ["temperature", "precipitation", "visibility"]:
+            for lag in WEATHER_LAGS:
+                merged[f"{col}_lag_{lag}h"] = merged[col]  # Use base value
+        return merged
+    
     weather_df = weather_df.copy()
     
     # Round timestamps to hour for merge
@@ -642,17 +694,37 @@ def build_features_for_detector(
         lag_168h_value: Pre-fetched congestion value from 168h ago
     
     Returns:
-        np.ndarray of shape (48, num_features) or None if insufficient data
+        np.ndarray of shape (48, num_features) or None if no data at all
+        
+    NOTE: If history < 48h, we PAD by repeating the earliest row.
+    This allows inference during cold start (less accurate initially).
     """
     # Filter to detector
     det_df = merged_df[merged_df["detector_id"] == detector_id].copy()
     
-    if len(det_df) < HISTORY_HOURS:
-        logger.warning(f"Detector {detector_id}: only {len(det_df)} hours, need {HISTORY_HOURS}")
+    if len(det_df) == 0:
+        logger.warning(f"Detector {detector_id}: no data at all")
         return None
     
-    # Sort by time and take last 48 hours
-    det_df = det_df.sort_values("timestamp").tail(HISTORY_HOURS)
+    # Sort by time and take last available hours
+    det_df = det_df.sort_values("timestamp")
+    available_hours = len(det_df)
+    
+    # COLD START HANDLING: If history < 48h, pad by repeating earliest row
+    if available_hours < HISTORY_HOURS:
+        rows_needed = HISTORY_HOURS - available_hours
+        logger.info(
+            f"Detector {detector_id}: only {available_hours}h history, "
+            f"padding with {rows_needed} copies of earliest row (cold start mode)"
+        )
+        # Get the earliest row and repeat it
+        earliest_row = det_df.iloc[[0]]
+        padding = pd.concat([earliest_row] * rows_needed, ignore_index=True)
+        # Prepend padding to actual data
+        det_df = pd.concat([padding, det_df], ignore_index=True)
+    
+    # Take last 48 hours (after potential padding)
+    det_df = det_df.tail(HISTORY_HOURS)
     
     # Set lag values if provided
     if lag_48h_value is not None:
@@ -735,6 +807,16 @@ def build_features_all_detectors(
     # 48h lag is always computed via shift(48) to match training
     # 168h lag uses provided snapshot (broadcast) since we lack 168h history
     merged = add_congestion_lags(merged, lag_168h_df)
+    
+    # Check cold start status
+    hours_per_detector = merged.groupby("detector_id").size()
+    min_hours = hours_per_detector.min() if len(hours_per_detector) > 0 else 0
+    if min_hours < HISTORY_HOURS:
+        logger.warning(
+            f"COLD START MODE: Only {min_hours}h of history available (need {HISTORY_HOURS}h). "
+            f"Predictions will be less accurate until cache fills. "
+            f"Full accuracy after {HISTORY_HOURS - min_hours} more hours of data collection."
+        )
     
     # Scale features
     merged = scale_features(merged)
