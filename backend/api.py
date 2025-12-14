@@ -10,8 +10,16 @@ Endpoints:
 - GET /health         → Health check
 - GET /forecast/age   → How old is the current forecast
 
+Security:
+---------
+All endpoints (except /health) require an API key.
+Pass it as: ?api_key=YOUR_KEY or header X-API-Key: YOUR_KEY
+
 Usage:
 ------
+    # Set API key as environment variable
+    export CONGESTION_API_KEY="your-secret-key-here"
+    
     # Run the API server
     uvicorn backend.api:app --host 0.0.0.0 --port 8000
     
@@ -21,15 +29,20 @@ Usage:
 The scheduler should still run separately (via systemd or cron) to refresh forecasts.
 """
 
-from fastapi import FastAPI, HTTPException
+import os
+from fastapi import FastAPI, HTTPException, Depends, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from datetime import datetime
 import logging
+from typing import Optional
 
 from backend.service import get_current_forecast, get_forecast_age
 
 logger = logging.getLogger(__name__)
+
+# API Key from environment variable
+API_KEY = os.getenv("CONGESTION_API_KEY", None)
 
 app = FastAPI(
     title="CongestionAI Backend API",
@@ -52,15 +65,41 @@ app.add_middleware(
 )
 
 
+def verify_api_key(
+    api_key: Optional[str] = Query(None, alias="api_key"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+):
+    """
+    Verify API key from query param or header.
+    If no API_KEY is configured, allow all requests (development mode).
+    """
+    if API_KEY is None:
+        # No key configured = development mode, allow all
+        return True
+    
+    provided_key = api_key or x_api_key
+    if not provided_key:
+        raise HTTPException(
+            status_code=401,
+            detail="API key required. Pass as ?api_key=KEY or header X-API-Key"
+        )
+    
+    if provided_key != API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+    
+    return True
+
+
 @app.get("/")
 async def root():
     """Root endpoint with API info."""
     return {
         "service": "CongestionAI Backend",
         "version": "1.0.0",
+        "auth_required": API_KEY is not None,
         "endpoints": {
             "/forecast": "Get full forecast data",
-            "/health": "Health check",
+            "/health": "Health check (no auth)",
             "/forecast/age": "Get forecast age",
         }
     }
@@ -68,7 +107,7 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
+    """Health check endpoint (no authentication required)."""
     forecast = get_current_forecast()
     age = get_forecast_age()
     
@@ -81,9 +120,11 @@ async def health():
 
 
 @app.get("/forecast")
-async def forecast():
+async def forecast(authorized: bool = Depends(verify_api_key)):
     """
     Get the current forecast data.
+    
+    Requires API key if CONGESTION_API_KEY is set.
     
     Returns the full forecast.json including:
     - data: Road-level congestion predictions (73,687 roads × 25 hours)
@@ -108,7 +149,7 @@ async def forecast():
 
 
 @app.get("/forecast/age")
-async def forecast_age():
+async def forecast_age(authorized: bool = Depends(verify_api_key)):
     """Get how old the current forecast is."""
     age = get_forecast_age()
     

@@ -14,6 +14,7 @@ st.title("CongestionAI — Route & Delay Estimator")
 
 # Backend API URL (for Streamlit Cloud deployment)
 BACKEND_API_URL = st.secrets.get("BACKEND_API_URL", None)
+BACKEND_API_KEY = st.secrets.get("BACKEND_API_KEY", None)
 
 # ------------------------------------------------------
 # Route color scheme - only 2 colors needed for alternatives
@@ -57,7 +58,10 @@ def load_forecast():
     """Load forecast from API (Streamlit Cloud) or local file (VM)."""
     if BACKEND_API_URL:
         try:
-            response = requests.get(f"{BACKEND_API_URL}/forecast", timeout=30)
+            headers = {}
+            if BACKEND_API_KEY:
+                headers["X-API-Key"] = BACKEND_API_KEY
+            response = requests.get(f"{BACKEND_API_URL}/forecast", headers=headers, timeout=30)
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:

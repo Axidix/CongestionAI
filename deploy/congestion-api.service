@@ -26,6 +26,7 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/CongestionAI
 Environment="PATH=/home/ubuntu/CongestionAI/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="CONGESTION_API_KEY=CHANGE_ME_TO_A_RANDOM_STRING"
 ExecStart=/home/ubuntu/CongestionAI/venv/bin/uvicorn backend.api:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=10

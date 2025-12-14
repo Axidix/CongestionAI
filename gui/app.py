@@ -12,6 +12,7 @@ mapbox_key = st.secrets["MAPBOX_TOKEN"]
 # Backend API URL (for Streamlit Cloud deployment)
 # Set this in .streamlit/secrets.toml: BACKEND_API_URL = "http://your-vm-ip:8000"
 BACKEND_API_URL = st.secrets.get("BACKEND_API_URL", None)
+BACKEND_API_KEY = st.secrets.get("BACKEND_API_KEY", None)
 
 st.set_page_config(page_title="CongestionAI", layout="wide")
 
@@ -33,13 +34,16 @@ def load_forecast():
     """
     Load forecast from backend API (remote) or local file (VM deployment).
     
-    For Streamlit Cloud: Set BACKEND_API_URL in secrets.toml
+    For Streamlit Cloud: Set BACKEND_API_URL and BACKEND_API_KEY in secrets.toml
     For local/VM: Falls back to local file if no API URL configured
     """
     # Try remote API first (for Streamlit Cloud)
     if BACKEND_API_URL:
         try:
-            response = requests.get(f"{BACKEND_API_URL}/forecast", timeout=30)
+            headers = {}
+            if BACKEND_API_KEY:
+                headers["X-API-Key"] = BACKEND_API_KEY
+            response = requests.get(f"{BACKEND_API_URL}/forecast", headers=headers, timeout=30)
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:
