@@ -91,6 +91,7 @@ def predict_batch(
 def postprocess_predictions(
     predictions: np.ndarray,
     detector_ids: List[str],
+    current_congestion: np.ndarray = None,
     timestamp: Optional[datetime] = None,
     forecast_horizon: int = 24,
     expand_to_roads: bool = True,
@@ -124,7 +125,28 @@ def postprocess_predictions(
     
     # Clip predictions to valid range [0, 1]
     predictions = np.clip(predictions, 0.0, 1.0)
-    
+
+    # Ensure predictions have 25 steps (current + 24h forecast)
+    if predictions.shape[1] == 24:
+        if current_congestion is not None and len(current_congestion) == predictions.shape[0]:
+            # Use the actual current congestion value as the first step
+            current_congestion = np.clip(current_congestion, 0.0, 1.0)
+            current_congestion = current_congestion.reshape(-1, 1)
+            predictions = np.concatenate([
+                current_congestion,
+                predictions
+            ], axis=1)
+            logger.info(f"Prepended actual current congestion to predictions for 25 steps per detector (current + 24h forecast)")
+        else:
+            # Fallback: repeat first predicted value
+            predictions = np.concatenate([
+                predictions[:, :1],
+                predictions
+            ], axis=1)
+            logger.warning("current_congestion not provided or shape mismatch; using first predicted value as current step.")
+    elif predictions.shape[1] != 25:
+        logger.warning(f"Unexpected predictions shape: {predictions.shape}, expected (N, 24) or (N, 25)")
+
     # Build detector-level data dict
     detector_data = {}
     for i, det_id in enumerate(detector_ids):

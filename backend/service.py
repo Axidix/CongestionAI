@@ -229,12 +229,34 @@ def refresh_forecast() -> bool:
         
         # Clip predictions to valid range [0, 1] BEFORE summary and postprocessing
         predictions = np.clip(predictions, 0.0, 1.0)
-        
+
+        # Diagnostics: log min, max, mean, and check for all-zero or near-zero predictions
+        min_pred = float(np.min(predictions))
+        max_pred = float(np.max(predictions))
+        mean_pred = float(np.mean(predictions))
+        zero_count = int(np.sum(predictions == 0.0))
+        total_count = int(np.prod(predictions.shape))
+        logger.info(f"Prediction stats: min={min_pred:.4f}, max={max_pred:.4f}, mean={mean_pred:.4f}, zero_count={zero_count}/{total_count}")
+        if zero_count == total_count:
+            logger.warning("All predictions are zero! Check model, data, or feature pipeline.")
+        elif zero_count > 0.9 * total_count:
+            logger.warning(f"More than 90% of predictions are zero. Possible data/model issue.")
+
+        # Extract current congestion from input features (assumes 'congestion_index' is in FEATURE_COLS)
+        try:
+            from backend.data.features import FEATURE_COLS
+            congestion_idx = FEATURE_COLS.index('congestion_index')
+            current_congestion = X[:, -1, congestion_idx]
+        except Exception as e:
+            logger.warning(f"Could not extract current congestion from features: {e}")
+            current_congestion = None
+
         # Postprocess and save
         output = postprocess_predictions(
             predictions=predictions,
             detector_ids=detector_ids,
-            timestamp=datetime.utcnow(),
+            current_congestion=current_congestion,
+            timestamp=datetime.now(datetime.timezone.utc),
         )
         
         # Add summary stats (now on clipped predictions)
