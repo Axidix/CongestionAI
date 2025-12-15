@@ -254,20 +254,29 @@ def refresh_forecast() -> bool:
         logger.info(f"  Predictions: {pred_raw.shape}")
 
         # --- Monitoring: Log raw prediction stats (before clipping) ---
+
         logger.warning(
             "RAW preds stats: min=%.4f max=%.4f mean=%.4f p1=%.4f p50=%.4f p99=%.4f",
             float(pred_raw.min()), float(pred_raw.max()), float(pred_raw.mean()),
             float(np.quantile(pred_raw, 0.01)), float(np.quantile(pred_raw, 0.50)), float(np.quantile(pred_raw, 0.99))
         )
 
-        predictions = np.clip(pred_raw, 0.0, 1.0)
+        # Apply sigmoid transform to raw predictions
+        pred_sig = 1.0 / (1.0 + np.exp(-pred_raw))
 
-        # --- Monitoring: Log clipped prediction stats ---
         logger.warning(
-            "CLIPPED preds stats: min=%.4f max=%.4f mean=%.4f zeros=%d/%d",
-            float(predictions.min()), float(predictions.max()), float(predictions.mean()),
-            int((predictions == 0).sum()), predictions.size
+            "SIGMOID preds stats: min=%.4f max=%.4f mean=%.4f p1=%.4f p50=%.4f p99=%.4f",
+            float(pred_sig.min()), float(pred_sig.max()), float(pred_sig.mean()),
+            float(np.quantile(pred_sig, 0.01)), float(np.quantile(pred_sig, 0.50)), float(np.quantile(pred_sig, 0.99))
         )
+
+        # Extra monitoring for zeros and near-zeros after sigmoid
+        logger.warning("Post-sigmoid zeros=%d/%d below_0.01=%d",
+                       int((pred_sig == 0).sum()), pred_sig.size,
+                       int((pred_sig < 0.01).sum()))
+
+        # Clip as safety (should do almost nothing now)
+        predictions = np.clip(pred_sig, 0.0, 1.0)
 
         # Save the FULL inference batch and predictions for deep debugging
         np.save("debug_X_full.npy", X)
@@ -275,8 +284,7 @@ def refresh_forecast() -> bool:
         np.save("debug_det_indices_full.npy", det_indices)
 
         
-        # Clip predictions to valid range [0, 1] BEFORE summary and postprocessing
-        predictions = np.clip(predictions, 0.0, 1.0)
+
 
         # Diagnostics: log min, max, mean, and check for all-zero or near-zero predictions
         min_pred = float(np.min(predictions))
