@@ -24,19 +24,18 @@ st.title("CongestionAI — Live & Forecast Dashboard")
 # ---------------------------------------------
 @st.cache_data
 def load_roads():
-    """Load roads from compressed or uncompressed file."""
-    gz_path = Path("data/berlin_roads.geojson.gz")
-    raw_path = Path("data/berlin_roads.geojson")
-    
+    """Load roads from compressed or uncompressed file, using script-relative path."""
+    base_dir = Path(__file__).parent / "data"
+    gz_path = base_dir / "berlin_roads.geojson.gz"
+    raw_path = base_dir / "berlin_roads.geojson"
     if gz_path.exists():
         with gzip.open(gz_path, 'rt') as f:
             gdf = gpd.read_file(f)
     elif raw_path.exists():
         gdf = gpd.read_file(raw_path)
     else:
-        st.error("❌ berlin_roads.geojson not found!")
+        st.error(f"❌ {gz_path.name}(.gz) not found in {base_dir.resolve()}!")
         return gpd.GeoDataFrame()
-    
     if "road_id" not in gdf.columns:
         st.error("road_id column not found!")
         return gpd.GeoDataFrame()
@@ -76,15 +75,13 @@ def load_forecast():
 roads = load_roads()
 forecast = load_forecast()
 
+# Check for backend data
+if not forecast or not forecast.get("data") or not forecast.get("weather"):
+    st.error("❌ **No forecast data from backend!**\n\nCheck that your backend API is running and accessible from Streamlit Cloud.\n\n- Is BACKEND_API_URL set correctly in your secrets?\n- Is the VM firewall open on port 8000?\n- Is the API key correct?\n\nNo fallback data is shown. Fix the backend to proceed.")
+    st.stop()
+
 # Extract weather from forecast (backend now includes it)
-if "weather" in forecast:
-    weather = forecast["weather"]
-else:
-    # Fallback for old format or missing weather
-    weather = {
-        "current": {"temp": 10, "precip": 0, "description": "unavailable"},
-        "hourly": [{"hour": h, "temp": 10, "precip": 0} for h in range(25)]
-    }
+weather = forecast["weather"]
 
 # ---------------------------------------------
 # Create placeholder for weather (will fill later)
@@ -134,13 +131,20 @@ with weather_placeholder.expander("🌤️ Weather at selected hour", expanded=T
 # ---------------------------------------------
 roads = roads.set_index("road_id")
 
-forecast_df = pd.DataFrame(forecast["data"]).T
-forecast_df.columns = range(25)
-
-roads["congestion"] = forecast_df[hour]
+# Handle empty forecast data
+if not forecast.get("data"):
+    st.warning("⚠️ No forecast data available. Is the backend API running and accessible?")
+    st.info("Configure `BACKEND_API_URL` and `BACKEND_API_KEY` in Streamlit secrets.")
+    roads["congestion"] = 0.0
+else:
+    forecast_df = pd.DataFrame(forecast["data"]).T
+    forecast_df.columns = range(len(forecast_df.columns))
+    # Match road_ids - only use roads that exist in forecast
+    common_ids = roads.index.intersection(forecast_df.index)
+    roads["congestion"] = forecast_df.loc[common_ids, hour] if hour < len(forecast_df.columns) else 0.0
 
 FREE_FLOW_SPEED = 50
-roads["estimated_speed"] = FREE_FLOW_SPEED * (1 - roads["congestion"])
+roads["estimated_speed"] = FREE_FLOW_SPEED * (1 - roads["congestion"].fillna(0))
 
 def congestion_to_color(x):
     if pd.isna(x): return [128, 128, 128, 180]

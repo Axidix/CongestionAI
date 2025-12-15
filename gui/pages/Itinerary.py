@@ -47,13 +47,12 @@ if "hourly_route_cache" not in st.session_state:
 # ------------------------------------------------------
 @st.cache_resource
 def load_graph_and_edges():
-    """Load graph from compressed or uncompressed file."""
-    gz_path = Path("data/berlin_drive.graphml.gz")
-    raw_path = Path("data/berlin_drive.graphml")
-    
+    """Load graph from compressed or uncompressed file, using script-relative path."""
+    import tempfile
+    base_dir = Path(__file__).parent.parent / "data"
+    gz_path = base_dir / "berlin_drive.graphml.gz"
+    raw_path = base_dir / "berlin_drive.graphml"
     if gz_path.exists():
-        # Decompress to temp file (osmnx needs file path)
-        import tempfile
         with gzip.open(gz_path, 'rb') as f_in:
             with tempfile.NamedTemporaryFile(suffix='.graphml', delete=False) as f_out:
                 f_out.write(f_in.read())
@@ -63,9 +62,8 @@ def load_graph_and_edges():
     elif raw_path.exists():
         G = ox.load_graphml(raw_path)
     else:
-        st.error("❌ berlin_drive.graphml not found!")
+        st.error(f"❌ {gz_path.name}(.gz) not found in {base_dir.resolve()}!")
         return None, None
-    
     edges = ox.graph_to_gdfs(G, nodes=False, edges=True)
     return G, edges
 
