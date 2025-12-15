@@ -78,6 +78,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +221,11 @@ def refresh_forecast() -> bool:
         if len(X) == 0:
             raise ValueError("No valid detector features built")
         logger.info(f"  Features: {X.shape} for {len(detector_ids)} detectors")
+        
+        # Save the first 5 detectors' features and IDs for debugging
+        np.save("debug_X_sample.npy", X[:5])
+        pd.Series(detector_ids[:5]).to_csv("debug_detector_ids_sample.csv", index=False)
+        np.save("debug_det_indices_sample.npy", det_indices[:5])
         
         # Step 5: Run inference
         logger.info("[5/5] Running model inference...")
