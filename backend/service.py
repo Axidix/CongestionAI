@@ -299,12 +299,15 @@ def refresh_forecast() -> bool:
             logger.warning(f"More than 90% of predictions are zero. Possible data/model issue.")
 
         # Extract current congestion from input features (assumes 'congestion_index' is in FEATURE_COLS)
+
+        # Extract current congestion from RAW traffic, not scaled X
         try:
-            from backend.data.features import FEATURE_COLS
-            congestion_idx = FEATURE_COLS.index('congestion_index')
-            current_congestion = X[:, -1, congestion_idx]
+            latest_ts = traffic_df["timestamp"].max()
+            cur = traffic_df[traffic_df["timestamp"] == latest_ts][["detector_id", "congestion_index"]]
+            cur = cur.set_index("detector_id").reindex(detector_ids)["congestion_index"].to_numpy()
+            current_congestion = np.clip(cur.astype(float), 0.0, 1.0)
         except Exception as e:
-            logger.warning(f"Could not extract current congestion from features: {e}")
+            logger.warning(f"Could not extract current congestion from raw traffic: {e}")
             current_congestion = None
 
         # Postprocess and save
@@ -314,10 +317,12 @@ def refresh_forecast() -> bool:
             detector_ids=detector_ids,
             current_congestion=current_congestion,
             timestamp=datetime.now(tz=timezone.utc),
-        )
 
-        # --- Zero origin diagnostics ---
-        # If road-level expansion was used, compare zeros in detector_data vs road_data
+                # Only dump debug files if enabled
+                if getattr(config, "DEBUG_DUMP", False):
+                    np.save("debug_X_full.npy", X)
+                    pd.Series(detector_ids).to_csv("debug_detector_ids_full.csv", index=False)
+                    np.save("debug_det_indices_full.npy", det_indices)
         if 'data' in output and output.get('num_roads', 0) > 0:
             # Rebuild detector_data (should match what was passed to expand_detector_forecast_to_roads)
             detector_data = {}
@@ -341,8 +346,18 @@ def refresh_forecast() -> bool:
         output["summary"] = get_forecast_summary(predictions, detector_ids)
         
         # Add weather forecast for GUI
+
         output["weather"] = format_weather_for_gui(weather_df)
-        
+
+        # Assert hour 0 is in [0,1] for all roads (regression safety)
+        try:
+            road_vals = np.array(list(output["data"].values()), dtype=float)
+            h0 = road_vals[:, 0]
+            if np.any((h0 < 0) | (h0 > 1)):
+                logger.error("Hour0 out-of-range! min=%s max=%s", h0.min(), h0.max())
+        except Exception as e:
+            logger.warning(f"Hour0 assertion failed: {e}")
+
         # Save to JSON
         save_forecast(output)
         
@@ -461,7 +476,8 @@ def get_forecast_for_hour(hour_offset: int = 0) -> Dict:
     if not forecast or "data" not in forecast:
         return {}
     
-    hour_offset = max(0, min(23, hour_offset))
+    max_h = 24
+    hour_offset = max(0, min(max_h, hour_offset))
     
     return {
         det_id: preds[hour_offset]
