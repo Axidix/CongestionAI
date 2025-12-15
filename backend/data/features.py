@@ -59,8 +59,13 @@ WEATHER_LAG_COLS = (
     [f"visibility_lag_{lag}h" for lag in WEATHER_LAGS]
 )
 
+
 # Full feature list in order
 FEATURE_COLS = FEATURE_COLS_BASE + SPIKE_COLS + CONGESTION_LAG_COLS + WEATHER_LAG_COLS
+
+# Diagnostic: Log feature column order at import
+import logging as _logging
+_logging.getLogger(__name__).warning("Feature columns order: %s", FEATURE_COLS)
 
 # Expected feature count (must match training)
 # This validates that FEATURE_COLS matches what the model was trained on

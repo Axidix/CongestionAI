@@ -123,14 +123,11 @@ def postprocess_predictions(
     if timestamp is None:
         timestamp = datetime.utcnow()
     
-    # Clip predictions to valid range [0, 1]
-    predictions = np.clip(predictions, 0.0, 1.0)
 
     # Ensure predictions have 25 steps (current + 24h forecast)
     if predictions.shape[1] == 24:
         if current_congestion is not None and len(current_congestion) == predictions.shape[0]:
-            # Use the actual current congestion value as the first step
-            current_congestion = np.clip(current_congestion, 0.0, 1.0)
+            # Use the actual current congestion value as the first step (no clip)
             current_congestion = current_congestion.reshape(-1, 1)
             predictions = np.concatenate([
                 current_congestion,

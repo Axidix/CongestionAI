@@ -200,3 +200,9 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 gui/doc.txt
+debug_det_indices_full.npy
+debug_detector_ids_full.csv
+debug_X_full.npy
+backend/cache/traffic_cache.parquet
+backend/cache/weather_cache.parquet
+gui/data/forecast.json

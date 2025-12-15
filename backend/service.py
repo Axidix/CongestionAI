@@ -177,6 +177,12 @@ def refresh_forecast() -> bool:
     """
     global _startup_validated
     
+
+    # Monitoring: Log model and scaler loading
+    logger.info(f"Loading model from {config.MODEL_CHECKPOINT_PATH}")
+    logger.info(f"Loading StandardScaler from {config.STD_SCALER_PATH}")
+    logger.info(f"Loading MinMaxScaler from {config.MM_SCALER_PATH}")
+
     # Validate once on first call
     if not _startup_validated:
         validate_startup()
@@ -210,6 +216,7 @@ def refresh_forecast() -> bool:
         else:
             logger.info(f"  168h lag: {len(lag_168h_df)} detectors")
         
+
         # Step 4: Build features
         logger.info("[4/5] Building features...")
         X, det_indices, detector_ids = prepare_inference_batch(
@@ -217,23 +224,50 @@ def refresh_forecast() -> bool:
             weather_history=weather_df,
             traffic_lag_168h=lag_168h_df,
         )
-        
+
         if len(X) == 0:
             raise ValueError("No valid detector features built")
         logger.info(f"  Features: {X.shape} for {len(detector_ids)} detectors")
+
+        # Monitoring: Warn if visibility missing in weather
+        if weather_df is not None and "visibility" not in weather_df.columns:
+            logger.warning("Visibility data is missing. Using default values.")
+
+        # Monitoring: Warn if NaNs in features
+        if np.any(np.isnan(X)):
+            logger.warning("Detected NaN values in features. Check if any features failed to load.")
         
 
-        # --- FIX 3: Log input X stats before inference ---
+
+        # --- Monitoring: Log input X stats before inference ---
         logger.warning(
-            "INPUT X stats: min=%.3f max=%.3f mean=%.3f",
-            float(X.min()), float(X.max()), float(X.mean())
+            "INPUT X stats: min=%.3f max=%.3f mean=%.3f std=%.3f",
+            float(X.min()), float(X.max()), float(X.mean()), float(X.std())
         )
+
+
 
         # Step 5: Run inference
         logger.info("[5/5] Running model inference...")
         model = _get_model()
-        predictions = predict_batch(model, X, det_indices, device=config.DEVICE)
-        logger.info(f"  Predictions: {predictions.shape}")
+        pred_raw = predict_batch(model, X, det_indices, device=config.DEVICE)
+        logger.info(f"  Predictions: {pred_raw.shape}")
+
+        # --- Monitoring: Log raw prediction stats (before clipping) ---
+        logger.warning(
+            "RAW preds stats: min=%.4f max=%.4f mean=%.4f p1=%.4f p50=%.4f p99=%.4f",
+            float(pred_raw.min()), float(pred_raw.max()), float(pred_raw.mean()),
+            float(np.quantile(pred_raw, 0.01)), float(np.quantile(pred_raw, 0.50)), float(np.quantile(pred_raw, 0.99))
+        )
+
+        predictions = np.clip(pred_raw, 0.0, 1.0)
+
+        # --- Monitoring: Log clipped prediction stats ---
+        logger.warning(
+            "CLIPPED preds stats: min=%.4f max=%.4f mean=%.4f zeros=%d/%d",
+            float(predictions.min()), float(predictions.max()), float(predictions.mean()),
+            int((predictions == 0).sum()), predictions.size
+        )
 
         # Save the FULL inference batch and predictions for deep debugging
         np.save("debug_X_full.npy", X)
