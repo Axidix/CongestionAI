@@ -3,4 +3,4 @@ C:\Users\adib4\AppData\Local\Programs\Python\Python311\python.exe -m streamlit r
 ssh:
 streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 ssh -L 8501:localhost:8501 addib.mellah@neotinea.polytechnique.fr
-
+ssh -i .\ssh-key-2025-12-14.key ubuntu@100.110.142.72
