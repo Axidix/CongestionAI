@@ -252,12 +252,34 @@ def refresh_forecast() -> bool:
             current_congestion = None
 
         # Postprocess and save
+        from datetime import timezone
         output = postprocess_predictions(
             predictions=predictions,
             detector_ids=detector_ids,
             current_congestion=current_congestion,
-            timestamp=datetime.now(datetime.timezone.utc),
+            timestamp=datetime.now(tz=timezone.utc),
         )
+
+        # --- Zero origin diagnostics ---
+        # If road-level expansion was used, compare zeros in detector_data vs road_data
+        if 'data' in output and output.get('num_roads', 0) > 0:
+            # Rebuild detector_data (should match what was passed to expand_detector_forecast_to_roads)
+            detector_data = {}
+            for i, det_id in enumerate(detector_ids):
+                detector_data[str(det_id)] = [round(float(v), 4) for v in predictions[i]]
+            # Count zeros in detector_data
+            det_zeros = sum(v == 0.0 for values in detector_data.values() for v in values)
+            det_total = sum(len(values) for values in detector_data.values())
+            # Count zeros in road_data
+            road_zeros = sum(v == 0.0 for values in output['data'].values() for v in values)
+            road_total = sum(len(values) for values in output['data'].values())
+            logger.info(f"Zero diagnostics: detectors {det_zeros}/{det_total} zeros, roads {road_zeros}/{road_total} zeros")
+            if road_zeros > det_zeros:
+                logger.warning("More zeros in road-level data than detector-level: likely from interpolation/mapping.")
+            elif road_zeros == det_zeros:
+                logger.info("Zero count matches: zeros originate from model inference.")
+            else:
+                logger.info("Fewer zeros in road-level data than detector-level (unexpected).")
         
         # Add summary stats (now on clipped predictions)
         output["summary"] = get_forecast_summary(predictions, detector_ids)
