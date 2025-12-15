@@ -202,25 +202,29 @@ def expand_detector_forecast_to_roads(
     Returns:
         {road_id: [24 interpolated congestion values]}
     """
+
     mapping = load_road_to_detector_mapping()
-    
+
     # Determine forecast horizon from first detector
     if detector_forecast:
         first_det = next(iter(detector_forecast.values()))
         horizon = len(first_det)
     else:
         horizon = 25  # 0-24 hours
-    
+
     default_forecast = [default_value] * horizon
-    
+
     road_forecast = {}
     partial_coverage_count = 0
-    
+    default_zero_count = 0
+
+    logger.info(f"expand_detector_forecast_to_roads: Using default_value={default_value}")
+
     for road_id, detector_weights in mapping.items():
         # Collect forecasts and weights for available detectors
         available_forecasts = []
         available_weights = []
-        
+
         for det_id, weight in detector_weights:
             # Try to find detector forecast (handle string/int ID mismatch)
             forecast = None
@@ -228,31 +232,35 @@ def expand_detector_forecast_to_roads(
                 forecast = detector_forecast[det_id]
             elif str(det_id) in detector_forecast:
                 forecast = detector_forecast[str(det_id)]
-            
+
             if forecast is not None:
                 available_forecasts.append(forecast)
                 available_weights.append(weight)
-        
+
         if not available_forecasts:
             # No detectors have forecasts - use default
             road_forecast[road_id] = default_forecast
             partial_coverage_count += 1
+            if default_value == 0.0:
+                default_zero_count += 1
         else:
             # IDW interpolation: weighted average
             weights_arr = np.array(available_weights)
             weights_arr = weights_arr / weights_arr.sum()  # Re-normalize for available detectors
-            
+
             forecasts_arr = np.array(available_forecasts)  # Shape: (n_available, horizon)
             interpolated = np.average(forecasts_arr, axis=0, weights=weights_arr)
-            
+
             road_forecast[road_id] = [round(float(v), 4) for v in interpolated]
-    
+
     if partial_coverage_count > 0:
         logger.warning(
             f"{partial_coverage_count}/{len(mapping)} roads have no detector coverage. "
             f"Using default value {default_value}."
         )
-    
+        if default_value == 0.0:
+            logger.warning(f"{default_zero_count} roads assigned all-zero forecasts due to default_value=0.0!")
+
     return road_forecast
 
 

@@ -170,6 +170,8 @@ def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
         df["hour"] = df["timestamp"].dt.hour
     if "year" not in df.columns:
         df["year"] = df["timestamp"].dt.year
+    # --- FIX 2: Clamp year to 2024 to match training range ---
+    df["year"] = df["year"].clip(upper=2024)
     if "month" not in df.columns:
         df["month"] = df["timestamp"].dt.month
     
@@ -660,7 +662,23 @@ def merge_traffic_weather(
     # Fill missing weather with reasonable defaults
     merged["temperature"] = merged["temperature"].fillna(10.0)
     merged["precipitation"] = merged["precipitation"].fillna(0.0)
+
     merged["visibility"] = merged["visibility"].fillna(10000.0)
+
+    # --- FIX 1: Force visibility scaling (critical for inference) ---
+    from backend.data.features import load_scalers
+    std_scaler, _, _ = load_scalers()
+    if "visibility" in merged.columns:
+        # Clip unrealistic values first (safety)
+        merged["visibility"] = merged["visibility"].clip(0, 100)
+        if std_scaler is not None and hasattr(std_scaler, 'feature_names_in_') and "visibility" in std_scaler.feature_names_in_:
+            idx = list(std_scaler.feature_names_in_).index("visibility")
+            mean = std_scaler.mean_[idx]
+            scale = std_scaler.scale_[idx]
+            merged["visibility"] = (merged["visibility"] - mean) / scale
+        else:
+            # Fallback: treat 10000 as 'clear' → map to 0
+            merged["visibility"] = 0.0
     
     # Ensure weather condition columns exist as Series before fillna
     if "is_rain" not in merged.columns:

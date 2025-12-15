@@ -157,7 +157,9 @@ def postprocess_predictions(
     if expand_to_roads:
         try:
             from backend.data.mapping import expand_detector_forecast_to_roads
-            road_data = expand_detector_forecast_to_roads(detector_data)
+            # Explicitly set default_value to 0.3 (not zero)
+            logger.info("Calling expand_detector_forecast_to_roads with default_value=0.3")
+            road_data = expand_detector_forecast_to_roads(detector_data, default_value=0.3)
             data = road_data
             num_roads = len(road_data)
         except FileNotFoundError as e:

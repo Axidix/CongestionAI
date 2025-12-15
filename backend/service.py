@@ -222,16 +222,24 @@ def refresh_forecast() -> bool:
             raise ValueError("No valid detector features built")
         logger.info(f"  Features: {X.shape} for {len(detector_ids)} detectors")
         
-        # Save the first 5 detectors' features and IDs for debugging
-        np.save("debug_X_sample.npy", X[:5])
-        pd.Series(detector_ids[:5]).to_csv("debug_detector_ids_sample.csv", index=False)
-        np.save("debug_det_indices_sample.npy", det_indices[:5])
-        
+
+        # --- FIX 3: Log input X stats before inference ---
+        logger.warning(
+            "INPUT X stats: min=%.3f max=%.3f mean=%.3f",
+            float(X.min()), float(X.max()), float(X.mean())
+        )
+
         # Step 5: Run inference
         logger.info("[5/5] Running model inference...")
         model = _get_model()
         predictions = predict_batch(model, X, det_indices, device=config.DEVICE)
         logger.info(f"  Predictions: {predictions.shape}")
+
+        # Save the FULL inference batch and predictions for deep debugging
+        np.save("debug_X_full.npy", X)
+        pd.Series(detector_ids).to_csv("debug_detector_ids_full.csv", index=False)
+        np.save("debug_det_indices_full.npy", det_indices)
+
         
         # Clip predictions to valid range [0, 1] BEFORE summary and postprocessing
         predictions = np.clip(predictions, 0.0, 1.0)
