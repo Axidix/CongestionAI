@@ -317,12 +317,13 @@ def refresh_forecast() -> bool:
             detector_ids=detector_ids,
             current_congestion=current_congestion,
             timestamp=datetime.now(tz=timezone.utc),
+        )
 
-                # Only dump debug files if enabled
-                if getattr(config, "DEBUG_DUMP", False):
-                    np.save("debug_X_full.npy", X)
-                    pd.Series(detector_ids).to_csv("debug_detector_ids_full.csv", index=False)
-                    np.save("debug_det_indices_full.npy", det_indices)
+        # Only dump debug files if enabled
+        if getattr(config, "DEBUG_DUMP", False):
+            np.save("debug_X_full.npy", X)
+            pd.Series(detector_ids).to_csv("debug_detector_ids_full.csv", index=False)
+            np.save("debug_det_indices_full.npy", det_indices)
         if 'data' in output and output.get('num_roads', 0) > 0:
             # Rebuild detector_data (should match what was passed to expand_detector_forecast_to_roads)
             detector_data = {}
