@@ -22,11 +22,11 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/CongestionAI
 Environment="PATH=/home/ubuntu/CongestionAI/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="CONGESTION_API_KEY=CHANGE_ME_TO_A_RANDOM_STRING"
 ExecStartPre=/usr/bin/test -x /home/ubuntu/CongestionAI/venv/bin/uvicorn
-ExecStart=/home/ubuntu/CongestionAI/venv/bin/uvicorn backend.api:app --host 0.0.0.0 --port 80
+ExecStart=/home/ubuntu/CongestionAI/venv/bin/uvicorn backend.api:app --host 127.0.0.1 --port 8000
+WorkingDirectory=/home/ubuntu/CongestionAI
 Restart=on-failure
 RestartSec=10
 

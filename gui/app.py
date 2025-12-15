@@ -41,34 +41,35 @@ def load_roads():
         return gpd.GeoDataFrame()
     return gdf
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes, then refetch
+
+# Improved: Use longer timeout and cache for large payloads
+@st.cache_data(ttl=300)
 def load_forecast():
     """
     Load forecast from backend API (remote) or local file (VM deployment).
-    
-    For Streamlit Cloud: Set BACKEND_API_URL and BACKEND_API_KEY in secrets.toml
-    For local/VM: Falls back to local file if no API URL configured
+    Uses a longer timeout for large payloads and caches the result for 5 minutes.
     """
-    # Try remote API first (for Streamlit Cloud)
     if BACKEND_API_URL:
         try:
             headers = {}
             if BACKEND_API_KEY:
                 headers["X-API-Key"] = BACKEND_API_KEY
-            response = requests.get(f"{BACKEND_API_URL}/forecast", headers=headers, timeout=30)
+            # Use longer connect/read timeout for large payloads
+            response = requests.get(
+                f"{BACKEND_API_URL}/forecast",
+                headers=headers,
+                timeout=(10, 60)  # connect timeout 10s, read timeout 60s
+            )
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:
             st.warning(f"⚠️ Could not fetch from backend API: {e}")
             # Fall through to local file
-    
     # Fallback to local file (VM deployment or development)
     local_path = Path("data/forecast.json")
     if local_path.exists():
         with open(local_path, "r") as f:
             return json.load(f)
-    
-    # No data available
     st.error("❌ No forecast data available. Backend may be starting up.")
     return {"data": {}, "weather": None}
 
