@@ -13,9 +13,7 @@
 #   sudo systemctl status congestion-api
 #   journalctl -u congestion-api -f
 #
-# IMPORTANT: Make sure to open port 8000 in your firewall:
-#   Oracle Cloud: Add ingress rule for TCP port 8000
-#   iptables: sudo iptables -I INPUT -p tcp --dport 8000 -j ACCEPT
+
 
 [Unit]
 Description=CongestionAI Backend API Server
@@ -28,7 +26,7 @@ WorkingDirectory=/home/ubuntu/CongestionAI
 Environment="PATH=/home/ubuntu/CongestionAI/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="CONGESTION_API_KEY=CHANGE_ME_TO_A_RANDOM_STRING"
 ExecStartPre=/usr/bin/test -x /home/ubuntu/CongestionAI/venv/bin/uvicorn
-ExecStart=/home/ubuntu/CongestionAI/venv/bin/uvicorn backend.api:app --host 0.0.0.0 --port 8000
+ExecStart=/home/ubuntu/CongestionAI/venv/bin/uvicorn backend.api:app --host 0.0.0.0 --port 80
 Restart=on-failure
 RestartSec=10
 

@@ -10,8 +10,8 @@ from pathlib import Path
 
 mapbox_key = st.secrets["MAPBOX_TOKEN"]
 
-# Backend API URL (for Streamlit Cloud deployment)
-# Set this in .streamlit/secrets.toml: BACKEND_API_URL = "http://your-vm-ip:8000"
+ # Backend API URL (for Streamlit Cloud deployment)
+# Set this in .streamlit/secrets.toml: BACKEND_API_URL = "http://your-vm-ip" (no port needed if using 80)
 BACKEND_API_URL = st.secrets.get("BACKEND_API_URL", None)
 BACKEND_API_KEY = st.secrets.get("BACKEND_API_KEY", None)
 
@@ -77,7 +77,7 @@ forecast = load_forecast()
 
 # Check for backend data
 if not forecast or not forecast.get("data") or not forecast.get("weather"):
-    st.error("❌ **No forecast data from backend!**\n\nCheck that your backend API is running and accessible from Streamlit Cloud.\n\n- Is BACKEND_API_URL set correctly in your secrets?\n- Is the VM firewall open on port 8000?\n- Is the API key correct?\n\nNo fallback data is shown. Fix the backend to proceed.")
+    st.error(f"❌ **No forecast data from backend!**\n\nCheck that your backend API is running and accessible from Streamlit Cloud.\n\n- Is BACKEND_API_URL set correctly in your secrets? (Current: {BACKEND_API_URL})\n- Is the VM firewall open on port 80?\n- Is the API key correct?\n\nNo fallback data is shown. Fix the backend to proceed.")
     st.stop()
 
 # Extract weather from forecast (backend now includes it)
