@@ -1,288 +1,211 @@
 # CongestionAI
-Real-time traffic congestion forecasting and visualization for Berlin
+
+CongestionAI is a city-scale traffic congestion forecasting system for Berlin.
+It predicts road congestion up to 24 hours ahead and provides a web interface
+to explore future traffic conditions over time.
+
+The project is designed as an end-to-end machine learning system, covering
+data ingestion, feature engineering, model training, production inference,
+deployment, and visualization.
+
+The objective of the project is twofold:
+- deliver a usable congestion forecasting tool
+- demonstrate the design and deployment of a production-grade ML system
 
 ---
 
 ## 1. Product Overview
 
-CongestionAI is a traffic intelligence web application that helps users anticipate congestion and plan trips across Berlin.
+CongestionAI provides:
 
-### What it does for a user
+- hourly congestion forecasts for the next 24 hours
+- city-wide road-level congestion visualization
+- time navigation to explore congestion evolution
+- a foundation for itinerary-aware decision support
 
-- Forecasts congestion up to 24 hours ahead.
-- Visualizes predicted congestion on a Berlin road map (road-segment level).
-- Lets the user explore congestion evolution hour-by-hour.
-- Supports itinerary decisions by highlighting when/where congestion is lower.
+Rather than reacting to current traffic conditions, the system enables users
+to anticipate congestion and plan accordingly.
 
-The system predicts a continuous congestion index in the range [0, 1] (not a binary label), enabling nuanced interpretation of traffic intensity.
+The application is currently focused on Berlin but was designed so that
+additional cities could be integrated with minimal changes.
 
----
+## 2. Technical Overview
 
-## 2. Technical Summary
+CongestionAI is implemented as a production-oriented ML pipeline:
 
-This repository is a full-stack ML system:
-- data ingestion from external APIs (traffic + weather),
-- feature engineering and temporal modeling,
-- deep learning forecasting (PyTorch TCN),
-- backend inference and caching,
-- authenticated API exposure,
-- and a Streamlit frontend for visualization.
+- ingestion of traffic and weather data from external APIs
+- time-series feature engineering
+- deep learning inference using a Temporal Convolutional Network (TCN)
+- spatial interpolation from detectors to road segments
+- backend caching and API exposure
+- frontend visualization via Streamlit
 
-The implementation emphasizes production constraints:
-- clear separation of training vs inference,
-- fault tolerance and caching,
-- and observability (logs + runtime diagnostics).
-
----
-
-## 3. Architecture
-
-End-to-end flow:
-
-1) Traffic API + Weather API ingestion
-2) Feature engineering for all detectors
-3) Temporal model inference (24h horizon)
-4) Postprocessing + detector-to-road interpolation
-5) Cached forecast artifact written to gui/data/forecast.json
-6) API serves the cached forecast to the frontend
-7) Streamlit UI renders the map and time controls
-
-Conceptual diagram:
-
-Traffic API      Weather API
-    |               |
-    +------v--------+
-           |
-   Feature engineering (backend)
-           |
-           v
-   Temporal CNN model (TCN)
-           |
-           v
- Detector-level predictions (24h)
-           |
-           v
- Road-level interpolation (IDW)
-           |
-           v
-        FastAPI backend
-           |
-           v
-     Streamlit frontend
+Design principles:
+- strict separation between training and inference code
+- reproducible inference using saved training artifacts
+- fault-tolerant backend behavior
+- observability through logs and diagnostics
 
 ---
+## 3. Repository Structure
 
-## 4. Repository Structure
+Top-level directories:
 
-CongestionAI/
-  backend/                Inference, ingestion, API, scheduler
-    api.py                FastAPI app (HTTP interface)
-    service.py            Main orchestration logic for refresh + caching
-    scheduler.py          Periodic refresh loop (hourly)
-    config.py             Centralized configuration (paths, keys, constants)
-    data/
-      traffic.py          Traffic ingestion, history accumulation, cleaning
-      weather.py          Weather ingestion and formatting
-      features.py         Feature construction for inference (X tensor)
-      mapping.py          Detector-to-road interpolation (IDW)
-    model/
-      loader.py           Model loading and caching (checkpoint -> torch model)
-      predictor.py        Batched inference + postprocess (sigmoid, safety)
-    scalers/              Training artifacts reused at inference
-    logs/                 Runtime logs
+- `backend/` — Inference + ingestion + scheduler + FastAPI API
+  - `api.py` — FastAPI HTTP interface (`/forecast`, `/health`, auth)
+  - `service.py` — Main orchestration: refresh pipeline + caching
+  - `scheduler.py` — Hourly refresh loop (APScheduler)
+  - `config.py` — Central configuration (paths, keys, constants)
+  - `data/` — Data ingestion + feature engineering
+    - `traffic.py` — Traffic ingestion, history accumulation, cleaning
+    - `weather.py` — Weather ingestion and formatting for GUI/features
+    - `features.py` — Feature construction for inference (build X tensor)
+    - `mapping.py` — Detector-to-road expansion (IDW interpolation)
+  - `model/` — Model loading and inference helpers
+    - `loader.py` — Load checkpoint into torch model (cached/singleton)
+    - `predictor.py` — Batched inference + postprocess
+  - `scalers/` — Training artifacts reused at inference (joblib)
+  - `logs/` — Runtime logs
 
-  gui/                    Streamlit UI
-    app.py                Frontend entry point
-    data/
-      forecast.json        Cached backend output consumed by the UI
-      berlin_roads.geojson.gz
+- `gui/` — Streamlit frontend
+  - `app.py` — Streamlit entry point
+  - `data/forecast.json` — Cached backend output consumed by the UI
+  - `data/berlin_roads.geojson.gz` — Road geometry for rendering
 
-  src/                    Training + evaluation code (PyTorch)
-    models/               Model definitions (TCN)
-    model_pipelines/       Training loops, losses, evaluation
-    utils/                Preprocessing, scaling, feature utilities
+- `src/` — Training + evaluation code (PyTorch)
+  - `models/` — Model definitions (TCN and modules)
+  - `model_pipelines/` — Training loops, losses, evaluation utilities
+  - `utils/` — Preprocessing, scalers, feature utilities
 
-  deploy/
-    congestion-api.service  systemd service file(s)
+- `deploy/` — Deployment assets
+  - `congestion-api.service` — systemd unit(s)
 
-  train_final_model.py     Final training entry point (portfolio-grade run)
-  training_journal.txt     Experiment notes and decisions
-  README.md
+Top-level entry points / docs:
 
----
+- `train_final_model.py` — Final consolidated training run for deployment
+- `training_journal.txt` — Experiment notes and decisions
+- `README.md` — Project documentation
 
-## 5. Backend (Inference + API)
+## 4. Backend Architecture
 
 ### Responsibilities
 
-The backend:
-- fetches and accumulates traffic data,
-- fetches weather history,
-- builds inference features for all detectors,
-- loads the trained model checkpoint,
-- runs batched inference,
-- constrains outputs to [0, 1] via sigmoid,
-- interpolates detector predictions to road segments,
-- writes a single cached artifact (gui/data/forecast.json),
-- serves it through a FastAPI endpoint.
+The backend produces and serves a single authoritative artifact:
+a cached congestion forecast.
 
-### Key files
+Main responsibilities:
+- ingest and accumulate traffic data
+- fetch recent weather data
+- build inference-ready features
+- run model inference
+- interpolate predictions to road level
+- cache and serve the forecast
 
-backend/service.py
-- Primary orchestration layer.
-- The function refresh_forecast() is the main pipeline:
-  1) traffic_df = fetch_and_accumulate()
-  2) weather_df = fetch_weather_history(...)
-  3) X, det_indices, detector_ids = prepare_inference_batch(...)
-  4) pred_raw = predict_batch(model, X, det_indices)
-  5) pred_sigmoid = sigmoid(pred_raw) and clip to [0, 1]
-  6) postprocess_predictions(...) including detector->road expansion
-  7) save_forecast(...) -> gui/data/forecast.json
+### Core orchestration
 
-backend/api.py
-- FastAPI app exposing endpoints (example):
-  - GET /forecast  (requires API key)
-  - GET /health
+The main pipeline is implemented in `backend/service.py` via
+`refresh_forecast()`:
 
-backend/scheduler.py
-- APScheduler-based periodic refresh.
-- Runs refresh_forecast() every hour.
-- Designed to keep the forecast fresh without manual intervention.
+1. Accumulate recent traffic history
+2. Fetch weather history
+3. Build features for all detectors
+4. Run model inference
+5. Postprocess and interpolate predictions
+6. Save `forecast.json` for the GUI
 
-backend/model/predictor.py
-- predict_batch(): runs model inference on the full detector batch.
-- postprocess_predictions(): prepares JSON output for the GUI and mapping layer.
-- Output constraints:
-  - raw model outputs are unbounded,
-  - sigmoid is applied in inference to enforce [0, 1],
-  - clipping is only a final safety net.
+Failures are logged and the previous forecast is preserved whenever possible.
 
-backend/data/mapping.py
-- Expands detector predictions to road-segment predictions using IDW mapping.
-- Handles roads without nearby detectors via a configurable default value.
+### API layer
+
+`backend/api.py` exposes a FastAPI application with endpoints such as:
+- `GET /forecast`
+- `GET /health`
+
+Access is protected using an API key.
+
+### Scheduling
+
+`backend/scheduler.py` runs the refresh pipeline hourly using APScheduler.
+
+## 5. Machine Learning Model
+
+### Model type
+
+The forecasting model is a Temporal Convolutional Network (TCN) implemented
+in PyTorch.
+
+TCNs were selected for:
+- stable training on long sequences
+- parallel computation
+- strong performance on multivariate time series
+
+### Training and experimentation
+
+Training code is located in `src/` and reflects an iterative experimentation
+process rather than a single training script.
+
+Experimentation included:
+- feature engineering strategies
+- temporal context lengths
+- spike-aware loss weighting
+- validation splits respecting temporal order
+- train / serve consistency checks
+
+Key experiment decisions and observations are documented in
+`training_journal.txt`.
+
+`train_final_model.py` consolidates the selected configuration into a
+deployment-ready training run and outputs the artifacts reused by the backend.
 
 ---
 
-## 6. Model and Output Semantics
+## 6. Frontend (GUI)
 
-### Model
-- Temporal Convolutional Network (TCN), PyTorch implementation.
-
-### Why TCN
-- Efficient for multivariate time series.
-- Stable and parallelizable training/inference.
-- Suitable for medium-length sequences (48h history) with engineered lags.
-
-### Output range
-- The model’s direct output is a real-valued score.
-- A sigmoid transformation is applied during backend inference:
-  sigmoid(x) = 1 / (1 + exp(-x))
-- The application-level congestion index is defined as the sigmoid output in [0, 1].
-
----
-
-## 7. Training Pipeline
-
-Training code lives in src/.
-
-Entry point:
-- train_final_model.py
+The frontend is implemented using Streamlit and focuses exclusively on
+visualization.
 
 Responsibilities:
-- build training tensors from prepared historical data,
-- fit scalers and persist them (StandardScaler + MinMaxScaler),
-- train the TCN model,
-- evaluate on validation slices,
-- persist final model checkpoint and inference artifacts used by the backend.
+- fetch forecast data from the backend
+- render road-level congestion maps
+- allow time navigation across forecast horizons
+- display forecast metadata
 
-Artifacts typically saved:
-- model checkpoint (.pt)
-- std_scaler.joblib
-- mm_scaler.joblib
-- det2idx.joblib (mapping from detector_id to embedding index)
-
-Key principle:
-- backend inference reuses the exact artifacts produced by training to avoid train/serve skew.
+The frontend is intentionally stateless.
 
 ---
 
-## 8. Frontend (Streamlit GUI)
+## 7. Deployment
 
-gui/app.py
-- Fetches the forecast from the backend API (or a proxy endpoint).
-- Renders:
-  - map overlay for road-level congestion values,
-  - time navigation / hour selector,
-  - optional supporting UI components (legend, metadata, freshness).
+Infrastructure components:
+- Oracle Cloud VM: backend hosting
+- systemd: backend process supervision
+- DuckDNS: public domain name
+- Cloudflare Worker: HTTPS proxy
+- Streamlit Cloud: frontend hosting
 
-The GUI is intentionally stateless:
-- It does not compute forecasts.
-- It consumes backend outputs and focuses on visualization.
-
----
-
-## 9. Deployment
-
-### Components
-
-Oracle Cloud VM
-- Runs backend services (FastAPI + scheduler).
-- Uses systemd to keep services running and auto-restart on failure.
-
-DuckDNS
-- Provides a stable domain name pointing to the VM public IP.
-
-Cloudflare Worker
-- Acts as an HTTPS-accessible proxy between Streamlit Cloud and the backend.
-- Used to mitigate outbound connectivity constraints observed from Streamlit Cloud to the VM.
-
-Streamlit Cloud
-- Hosts the GUI.
-
-### Deployment flow
-
-Oracle VM (FastAPI + scheduler)
-  -> DuckDNS domain
-      -> Cloudflare Worker (HTTPS)
-          -> Streamlit Cloud frontend
+This setup ensures reliability, security, and compatibility with Streamlit
+Cloud outbound networking constraints.
 
 ---
 
-## 10. Observability and Operations
+## 8. Observability and Future Work
 
-The system is designed for operational clarity:
-- systemd supervises the backend processes.
-- backend writes structured logs and statistics:
-  - feature tensor stats,
-  - raw and post-sigmoid prediction stats,
-  - forecast age and refresh timing,
-  - mapping expansion diagnostics (detector vs road-level coverage).
+The system includes diagnostics for:
+- refresh duration and scheduling
+- input feature statistics
+- prediction distribution checks
+- detector vs road-level coverage
 
-Recommended operational checks:
-- GET /health for freshness
-- monitor backend logs (journalctl) for anomalies
-
----
-
-## 11. Collaboration Notes
-
-This repository is structured to support collaboration:
-- separation of concerns (training vs inference vs UI),
-- reproducible artifacts for inference,
-- centralized configuration,
-- and modular data/model components.
-
-Typical contribution areas:
-- improved feature engineering,
-- improved spatial interpolation / coverage,
-- model iteration and evaluation,
-- UI improvements (itinerary support, overlays, UX).
+Planned improvements:
+- a model insights page in the GUI
+- latency optimization in feature building and interpolation
+- itinerary-aware congestion aggregation
 
 ---
 
-## 12. Known Limitations and Planned Work
+## 9. Project Status
 
-- Further validation of road-level interpolation behavior.
-- Additional itinerary tools (routing-aware aggregation over road segments).
-- Performance improvements for large mapping expansion.
-- Extended monitoring and alerting for forecast freshness and drift.
+- end-to-end pipeline operational
+- hourly forecasting stable
+- backend and frontend fully integrated
+- ongoing refinement for performance and interpretability
