@@ -12,7 +12,6 @@ gui/data/berlin_roads.geojson
 gui/data/berlin_drive.graphml
 gui/data/forecast.json
 gui/data/weather.json
-gui/data/*.json
 # Include the compressed files (negate ignore)
 !gui/data/*.gz
 

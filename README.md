@@ -12,6 +12,9 @@ The objective of the project is twofold:
 - deliver a usable congestion forecasting tool
 - demonstrate the design and deployment of a production-grade ML system
 
+Demo of the project can be accessed at https://congestion-berlin.streamlit.app/
+For any questions/issues, please contact adib.mellah.projets@gmail.com
+
 ---
 
 ## 1. Product Overview

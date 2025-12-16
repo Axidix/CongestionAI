@@ -1017,3 +1017,17 @@ with right_col:
                 api_keys={"mapbox": st.secrets["MAPBOX_TOKEN"]}
             )
         )
+
+# Footer
+st.markdown(
+    '''
+    <hr style="margin-top:2em;margin-bottom:0.5em;">
+    <div style="font-size:0.95em; color: #888;">
+        Built by Adib — Traffic Forecasting & ML Engineering<br>
+        📧 <a href="mailto:adib.mellah.projets@gmail.com">adib.mellah.projets@gmail.com</a> ·
+        <a href="https://github.com/Axidix" target="_blank">GitHub</a> ·
+        Last update: 2025-12-15
+    </div>
+    ''',
+    unsafe_allow_html=True
+)

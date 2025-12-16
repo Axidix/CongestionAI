@@ -149,9 +149,11 @@ roads["estimated_speed"] = FREE_FLOW_SPEED * (1 - roads["congestion"].fillna(0))
 
 def congestion_to_color(x):
     if pd.isna(x): return [128, 128, 128, 180]
-    if x < 0.3: return [0, 255, 0, 180]
-    if x < 0.6: return [255, 165, 0, 180]
-    return [255, 0, 0, 180]
+    if x <= 0.1: return [0, 255, 0, 180]           # Green
+    if x <= 0.3: return [255, 220, 100, 180]       # Light Orange
+    if x <= 0.5: return [255, 165, 0, 180]         # Orange
+    if x <= 0.7: return [255, 100, 0, 180]         # Dark Orange
+    return [255, 0, 0, 180]                        # Red
 
 roads["color"] = roads["congestion"].map(congestion_to_color)
 roads["path"] = roads["geometry"].apply(lambda geom: list(geom.coords))
@@ -207,3 +209,16 @@ st.pydeck_chart(pdk.Deck(
     tooltip=tooltip,
 ))
 
+# Footer
+st.markdown(
+    '''
+    <hr style="margin-top:2em;margin-bottom:0.5em;">
+    <div style="font-size:0.95em; color: #888;">
+        Built by Adib — Traffic Forecasting & ML Engineering<br>
+        📧 <a href="mailto:adib.mellah.projets@gmail.com">adib.mellah.projets@gmail.com</a> ·
+        <a href="https://github.com/Axidix" target="_blank">GitHub</a> ·
+        Last update: 2025-12-15
+    </div>
+    ''',
+    unsafe_allow_html=True
+)
