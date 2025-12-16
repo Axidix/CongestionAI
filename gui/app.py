@@ -16,6 +16,7 @@ BACKEND_API_URL = st.secrets.get("BACKEND_API_URL", None)
 BACKEND_API_KEY = st.secrets.get("BACKEND_API_KEY", None)
 
 st.set_page_config(page_title="CongestionAI", layout="wide")
+st.sidebar.title("Forecast")
 
 st.title("CongestionAI — Live & Forecast Dashboard")
 
