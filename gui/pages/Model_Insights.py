@@ -47,21 +47,9 @@ st.plotly_chart(fig, use_container_width=True)
 st.caption("Error distribution: most predictions are well-calibrated.")
 
 # Section E: (Optional) Spatial
-try:
-    with open("gui/data/metrics_by_detector.json") as f:
-        by_det = pd.DataFrame(json.load(f))
-    st.map(by_det[["lat", "lon"]])
-    st.dataframe(by_det.sort_values('mae', ascending=False).head(10))
-except Exception:
-    st.info("Spatial metrics not available.")
+# Spatial metrics removed: detector coordinates are normalized and not meaningful for display.
 
-st.markdown("""
-**Insights:**
-- Model achieves strong overall accuracy and is robust across time and space.
-- Error increases with forecast horizon, especially after 12h.
-- Rush hours are harder to predict due to rapid changes.
-- Backend runs hourly; prediction distribution and out-of-range checks are logged.
-""")
+
 
 # Footer
 st.markdown(

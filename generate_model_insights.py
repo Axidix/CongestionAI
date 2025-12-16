@@ -17,8 +17,8 @@ data_cfg = DataConfig(
     weather_lags=(0, -3, -6, -12, -24),
     delta_lags=(1, 2, 4, 6),
     volatility_threshold=0.04,
-    years_train=(2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024),
-    years_val=(2024,),
+    years_train=(2020,),
+    years_val=(2019,),
     years_test=(),
     cache_dir="prepared_data/memmap_cache_final",
     congestion_lags=(48, 168),
@@ -53,11 +53,14 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 output_dir = "plots_training_dl/final_model"
 checkpoint_path = f"{output_dir}/checkpoints/best_model_FINAL_MODEL_lags_48_168.pt"
 
-# --- Load validation data ---
-(X_train, Y_train, idx_train, det_train,
- X_val, Y_val, idx_val, det_val,
- train_df, val_df, std_scaler, mm_scaler,
- memmap_builder, num_detectors) = prepare_data_memmap(data_cfg)
+
+# --- Load only validation data ---
+(
+    _, _, _, _,
+    X_val, Y_val, idx_val, det_val,
+    _, val_df, std_scaler, mm_scaler,
+    _, num_detectors
+) = prepare_data_memmap(data_cfg)
 
 # --- Load model ---
 model = create_model(
@@ -87,10 +90,14 @@ def batched_predict(model, X, det, batch_size=2048, device="cpu"):
 
 preds = batched_predict(model, X_val, det_val, batch_size=2048, device=device)
 # ✅ Fix 1: Apply sigmoid before evaluation
+
 preds = 1.0 / (1.0 + np.exp(-preds))
 
-Y_true = Y_val
-Y_pred = preds
+# Inverse transform predictions and targets to original scale (manual for target column)
+target_min = mm_scaler.min_[0]
+target_scale = mm_scaler.scale_[0]
+Y_pred = preds * target_scale + target_min
+Y_true = Y_val * target_scale + target_min
 abs_err = np.abs(Y_pred - Y_true)
 
 # ✅ Fix 3: Correct R² (flatten arrays)
