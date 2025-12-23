@@ -18,9 +18,7 @@ For any questions/issues, please contact adib.mellah.projets@gmail.com
 
 Demo:
 
-
-https://github.com/user-attachments/assets/adf8af31-f98f-40ce-bc94-d45965ce0660
-
+https://github.com/user-attachments/assets/9c2c8646-d2bc-41a7-81b2-687cc9794695
 
 
 ---
